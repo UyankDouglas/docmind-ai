@@ -1,4 +1,4 @@
-// Tipos espelhando docs/api-contract.md (Fase 1 + adições da Fase 2)
+// Tipos espelhando docs/api-contract.md (Fase 1 + adições das Fases 2 e 3)
 
 export type Role = "admin" | "editor" | "viewer";
 
@@ -16,6 +16,28 @@ export interface UserMe {
   created_at: string;
   workspace: WorkspaceSummary;
 }
+
+export type RetrievalMode = "vector" | "hybrid";
+
+export interface RetrievalSettings {
+  mode: RetrievalMode;
+  top_k: number;
+  min_similarity: number;
+  max_context_tokens: number;
+  rrf_k: number;
+}
+
+export interface WorkspaceSettings {
+  external_ai_enabled: boolean;
+  retrieval: RetrievalSettings;
+}
+
+export const RETRIEVAL_LIMITS = {
+  top_k: { min: 1, max: 30 },
+  min_similarity: { min: 0, max: 1 },
+  max_context_tokens: { min: 1000, max: 12000 },
+  rrf_k: { min: 1, max: 1000 },
+} as const;
 
 export interface Workspace extends WorkspaceSummary {
   created_at: string;
@@ -179,10 +201,18 @@ export interface SearchResult {
   page_end: number | null;
   section_title: string | null;
   text: string;
+  /** score final (fundido quando hybrid; similaridade quando vector) */
   score: number;
   location_type: LocationType;
   location_label: string;
   mime_type: string;
+  // Fase 3
+  vector_score: number | null;
+  lexical_score: number | null;
+  vector_rank: number | null;
+  lexical_rank: number | null;
+  /** trecho com <mark> do FTS quando houver (renderizar somente após sanitizar) */
+  highlight: string | null;
 }
 
 export interface SearchResponse {
@@ -190,7 +220,71 @@ export interface SearchResponse {
   results: SearchResult[];
   latency_ms: number;
   embedding_model: string;
+  mode: RetrievalMode;
+  vector_candidates: number;
+  lexical_candidates: number;
 }
+
+export interface SearchHistoryItem {
+  id: string;
+  query: string;
+  mode: RetrievalMode;
+  result_count: number;
+  latency_ms: number;
+  created_at: string;
+}
+
+export interface EvidenceCandidate {
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  location_label: string;
+  score: number;
+  vector_score: number | null;
+  lexical_score: number | null;
+  in_context: boolean;
+  cited: boolean;
+  citation_index: number | null;
+  snippet: string;
+}
+
+export interface RetrievalEvidence {
+  message_id: string;
+  mode: RetrievalMode;
+  params: { top_k: number; min_similarity: number; max_context_tokens: number; embedding_model: string };
+  scoped_document_ids: string[];
+  candidates: EvidenceCandidate[];
+  context_tokens: number;
+  context_truncated: boolean;
+  invalid_citations_removed: number[];
+  latency: { retrieval_ms: number; generation_ms: number | null };
+  usage: { prompt_tokens: number | null; completion_tokens: number | null; model: string | null };
+}
+
+export interface FeedbackSummary {
+  positive: number;
+  negative: number;
+  total_answers: number;
+}
+
+/** Fonte candidata enviada ao modelo (evento `context` do streaming). */
+export interface StreamSource {
+  index: number;
+  chunk_id: string;
+  document_id: string;
+  document_name: string;
+  location_label: string;
+  location_type: LocationType;
+  mime_type: string | null;
+  snippet: string;
+}
+
+export type ChatStreamEvent =
+  | { event: "user_message"; data: Message }
+  | { event: "context"; data: { sources: StreamSource[] } }
+  | { event: "delta"; data: { text: string } }
+  | { event: "done"; data: { assistant_message: Message } }
+  | { event: "error"; data: { code: string; message: string } };
 
 export interface Citation {
   id: string;
@@ -264,6 +358,7 @@ export interface Usage {
     max_upload_mb: number;
     max_pdf_pages: number;
   };
+  feedback?: FeedbackSummary;
 }
 
 export interface Health {

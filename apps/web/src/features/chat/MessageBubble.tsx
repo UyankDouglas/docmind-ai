@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AlertTriangle, BrainCircuit, FileText, Info, SearchX, ThumbsDown, ThumbsUp } from "lucide-react";
+import { AlertTriangle, BrainCircuit, FileText, Info, Microscope, SearchX, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { locationLabel } from "@/lib/documents";
@@ -14,6 +14,8 @@ export interface MessageBubbleProps {
   onFeedback?: (messageId: string, rating: 1 | -1) => void;
   feedbackPending?: boolean;
   activeCitationId?: string | null;
+  /** abre o painel "Como esta resposta foi gerada" */
+  onExplain?: (messageId: string) => void;
 }
 
 export function citationLabel(c: Citation): string {
@@ -21,7 +23,7 @@ export function citationLabel(c: Citation): string {
   return where ? `${c.document_name} — ${where}` : c.document_name;
 }
 
-export function MessageBubble({ message, userName, onCitationClick, onFeedback, feedbackPending, activeCitationId }: MessageBubbleProps) {
+export function MessageBubble({ message, userName, onCitationClick, onFeedback, feedbackPending, activeCitationId, onExplain }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const byIndex = React.useMemo(() => new Map(message.citations.map((c) => [c.index, c])), [message.citations]);
 
@@ -146,8 +148,20 @@ export function MessageBubble({ message, userName, onCitationClick, onFeedback, 
           <time dateTime={message.created_at}>{formatDateTime(message.created_at)}</time>
           {!isUser && message.model ? <span>· {message.model}</span> : null}
           {!isUser && message.latency_ms != null ? <span>· {(message.latency_ms / 1000).toFixed(1)}s</span> : null}
+          {!isUser && onExplain && message.status !== "ai_unavailable" ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 px-2 text-[11px] text-muted-foreground"
+              onClick={() => onExplain(message.id)}
+              aria-label="Como esta resposta foi gerada"
+              data-testid="explain-button"
+            >
+              <Microscope className="size-3.5" /> Como foi gerada
+            </Button>
+          ) : null}
           {!isUser && onFeedback && message.status !== "ai_unavailable" ? (
-            <span className="ml-auto flex items-center gap-0.5" role="group" aria-label="Avaliar resposta">
+            <span className={cn("flex items-center gap-0.5", !onExplain && "ml-auto")} role="group" aria-label="Avaliar resposta">
               <Button
                 variant="ghost"
                 size="icon-sm"

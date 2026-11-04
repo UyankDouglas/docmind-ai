@@ -1,5 +1,5 @@
 import * as React from "react";
-import { SendHorizonal } from "lucide-react";
+import { SendHorizonal, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -10,9 +10,11 @@ interface Props {
   placeholder?: string;
   maxChars?: number;
   hint?: string;
+  /** quando informado e `pending`, mostra o botão Parar (aborta o streaming) */
+  onStop?: () => void;
 }
 
-export function ChatComposer({ onSend, disabled, pending, placeholder, maxChars = 2000, hint }: Props) {
+export function ChatComposer({ onSend, disabled, pending, placeholder, maxChars = 2000, hint, onStop }: Props) {
   const [value, setValue] = React.useState("");
   const ref = React.useRef<HTMLTextAreaElement>(null);
 
@@ -68,9 +70,15 @@ export function ChatComposer({ onSend, disabled, pending, placeholder, maxChars 
           {hint ?? "Enter envia · Shift+Enter quebra linha"}
           {value.length > maxChars * 0.8 ? ` · ${value.length}/${maxChars}` : ""}
         </span>
-        <Button type="submit" size="sm" variant="gradient" disabled={disabled || !value.trim() || over} loading={pending} aria-label="Enviar pergunta">
-          {!pending ? <SendHorizonal /> : null} Enviar
-        </Button>
+        {pending && onStop ? (
+          <Button type="button" size="sm" variant="outline" onClick={onStop} aria-label="Parar geração">
+            <Square className="size-3.5" /> Parar
+          </Button>
+        ) : (
+          <Button type="submit" size="sm" variant="gradient" disabled={disabled || !value.trim() || over} loading={pending} aria-label="Enviar pergunta">
+            {!pending ? <SendHorizonal /> : null} Enviar
+          </Button>
+        )}
       </div>
     </form>
   );

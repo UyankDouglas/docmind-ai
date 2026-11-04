@@ -15,9 +15,10 @@ import {
   useConversation,
   useCreateConversation,
   useSendFeedback,
-  useSendMessage,
+  useStreamMessage,
   useUpdateConversation,
 } from "@/features/chat/hooks";
+import { EvidenceDialog } from "@/features/chat/EvidencePanel";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { errorMessage } from "@/services/api";
 import type { Citation } from "@/types/api";
@@ -57,8 +58,9 @@ export function ChatPage() {
   const conversation = useConversation(conversationId);
   const create = useCreateConversation();
   const update = useUpdateConversation();
-  const send = useSendMessage(conversationId ?? "");
+  const stream = useStreamMessage(conversationId ?? "");
   const feedback = useSendFeedback(conversationId ?? "");
+  const [explainId, setExplainId] = React.useState<string | null>(null);
 
   const scope: Scope = conversationId ? conversationScope(conversation.data) : pendingScope;
   const scopeEmpty = scope.document_ids.length === 0 && scope.collection_ids.length === 0;
@@ -89,11 +91,20 @@ export function ChatPage() {
       return;
     }
     try {
-      await send.mutateAsync({ content });
+      await stream.send({ content });
     } catch (e) {
       toast({ kind: "error", title: "Não foi possível enviar a pergunta", description: errorMessage(e) });
     }
   };
+
+  const streamError = stream.state.error;
+  const clearStreamError = stream.clearError;
+  React.useEffect(() => {
+    if (streamError) {
+      toast({ kind: "error", title: "A geração falhou", description: streamError });
+      clearStreamError();
+    }
+  }, [streamError, clearStreamError, toast]);
 
   // Envia a primeira mensagem após criar a conversa a partir da tela vazia
   const sentFirstRef = React.useRef<string | null>(null);
@@ -192,7 +203,8 @@ export function ChatPage() {
               isError={conversation.isError}
               error={conversation.error}
               onRetry={() => void conversation.refetch()}
-              sending={send.isPending}
+              sending={stream.isStreaming}
+              stream={stream.state}
               userName={user?.name}
               onCitationClick={openCitation}
               onFeedback={handleFeedback}
@@ -200,6 +212,7 @@ export function ChatPage() {
               activeCitationId={viewer?.citationId ?? null}
               suggestions={SUGGESTIONS}
               onSuggestion={(s) => void handleSend(s)}
+              onExplain={setExplainId}
             />
           ) : !isDesktop ? (
             <div className="flex h-full flex-col">
@@ -241,7 +254,8 @@ export function ChatPage() {
             <div className="mx-auto max-w-4xl">
               <ChatComposer
                 onSend={(c) => void handleSend(c)}
-                pending={send.isPending || create.isPending}
+                pending={stream.isStreaming || create.isPending}
+                onStop={stream.isStreaming ? stream.stop : undefined}
                 disabled={conversation.isError}
                 hint={scopeEmpty ? "Sem seleção: todos os documentos prontos do workspace serão considerados" : undefined}
               />
@@ -249,6 +263,8 @@ export function ChatPage() {
           </div>
         ) : null}
       </section>
+
+      <EvidenceDialog messageId={explainId} onOpenChange={(o) => !o && setExplainId(null)} />
 
       {/* Visualizador lado a lado */}
       {viewer && isDesktop ? (

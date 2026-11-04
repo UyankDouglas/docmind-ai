@@ -5,6 +5,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ErrorState";
 import type { Citation, Conversation } from "@/types/api";
 import { MessageBubble } from "./MessageBubble";
+import { StreamingBubble } from "./StreamingBubble";
+import type { StreamState } from "./hooks";
 
 interface Props {
   conversation: Conversation | undefined;
@@ -20,6 +22,9 @@ interface Props {
   activeCitationId?: string | null;
   suggestions?: string[];
   onSuggestion?: (text: string) => void;
+  /** estado do streaming; quando ativo, mostra o balão de rascunho em vez do indicador genérico */
+  stream?: StreamState;
+  onExplain?: (messageId: string) => void;
 }
 
 export function ChatThread({
@@ -36,13 +41,17 @@ export function ChatThread({
   activeCitationId,
   suggestions = [],
   onSuggestion,
+  stream,
+  onExplain,
 }: Props) {
   const bottomRef = React.useRef<HTMLDivElement>(null);
   const count = conversation?.messages.length ?? 0;
+  const streaming = !!stream && stream.phase !== "idle";
+  const draftLength = stream?.draft.length ?? 0;
 
   React.useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [count, sending]);
+  }, [count, sending, streaming, draftLength]);
 
   if (isPending) {
     return (
@@ -68,7 +77,7 @@ export function ChatThread({
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 sm:p-6" role="log" aria-live="polite" aria-relevant="additions">
-      {conversation.messages.length === 0 && !sending ? (
+      {conversation.messages.length === 0 && !sending && !streaming ? (
         <div className="flex flex-col items-center py-10 text-center animate-fade-in">
           <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-gradient-brand text-white shadow-lg">
             <MessageSquareText className="size-7" aria-hidden />
@@ -106,10 +115,13 @@ export function ChatThread({
           onFeedback={m.id.startsWith("optimistic-") ? undefined : onFeedback}
           feedbackPending={feedbackPending}
           activeCitationId={activeCitationId}
+          onExplain={m.id.startsWith("optimistic-") ? undefined : onExplain}
         />
       ))}
 
-      {sending ? (
+      {streaming && stream ? (
+        <StreamingBubble state={stream} />
+      ) : sending ? (
         <div className="flex gap-3">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-brand text-white" aria-hidden>
             <Sparkles className="size-4" />

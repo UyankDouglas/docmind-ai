@@ -17,3 +17,7 @@
 | 13 | Frontend em Vite 7 (não 8) | Vite 8 | `@vitejs/plugin-react` e Vitest ainda não suportavam Vite 8 de forma estável na data de criação. |
 | 14 | PGlite (+pgvector) como banco **local de desenvolvimento/testes** quando o Docker não está disponível | Exigir Docker sempre | Permitiu executar migrations e a suíte de integração nesta máquina; não substitui PostgreSQL em produção (uma conexão por vez). |
 | 15 | Duplicidade por SHA-256 bloqueia upload no mesmo workspace | Permitir cópias | Evita reindexar e cobrar embeddings do mesmo conteúdo; a Fase 2 trará versionamento explícito. |
+| 16 | Full-Text Search com coluna `tsvector` gerada + GIN em vez de serviço externo (Elasticsearch/OpenSearch) | Elastic/OpenSearch, pg_trgm | Mesmo banco, mesmas transações e filtros de isolamento; suficiente para o volume e sem novo componente operacional. |
+| 17 | Fusão RRF em vez de combinação linear de scores | Soma ponderada normalizada, reranker neural | Scores vetoriais e léxicos têm escalas incomparáveis; RRF é robusto, determinístico e explicável. Reranker fica para avaliação na Fase 6. |
+| 18 | Streaming só após "context" e com `done` validado | Streamar e citar ao mesmo tempo | O prompt do projeto exige fontes garantidas antes de streaming: o cliente conhece os trechos citáveis antes do primeiro token e só mostra como definitivo o texto validado. |
+| 19 | `retrieval_meta` persistido por mensagem e exposto por endpoint próprio | Recalcular sob demanda | Explicabilidade reproduzível: o que foi recuperado naquele momento, não o que seria recuperado hoje. |

@@ -1,5 +1,10 @@
-import { useQuery } from "@tanstack/react-query";
-import { settingsApi } from "./api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { WorkspaceSettings } from "@/types/api";
+import { settingsApi, type WorkspaceSettingsPatch } from "./api";
+
+export const settingsKeys = {
+  workspaceSettings: ["workspace", "settings"] as const,
+};
 
 export function useAiStatus() {
   return useQuery({
@@ -36,5 +41,25 @@ export function useMembers() {
     queryKey: ["workspace", "members"],
     queryFn: ({ signal }) => settingsApi.members(signal),
     select: (d) => d.items,
+  });
+}
+
+export function useWorkspaceSettings() {
+  return useQuery({
+    queryKey: settingsKeys.workspaceSettings,
+    queryFn: ({ signal }) => settingsApi.workspaceSettings(signal),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateWorkspaceSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: WorkspaceSettingsPatch) => settingsApi.updateWorkspaceSettings(patch),
+    onSuccess: (data: WorkspaceSettings) => {
+      qc.setQueryData(settingsKeys.workspaceSettings, data);
+      void qc.invalidateQueries({ queryKey: ["workspace", "current"] });
+      void qc.invalidateQueries({ queryKey: ["settings", "ai"] });
+    },
   });
 }

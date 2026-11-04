@@ -1,4 +1,4 @@
-import { Moon, Sun, Users } from "lucide-react";
+import { Moon, SlidersHorizontal, Sun, ThumbsDown, ThumbsUp, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -6,7 +6,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { useMe } from "@/features/auth/hooks";
 import { AiStatusCard } from "@/features/settings/AiStatusCard";
-import { useMembers, useUsage, useWorkspace } from "@/features/settings/hooks";
+import { RetrievalSettingsCard } from "@/features/settings/RetrievalSettingsCard";
+import { useAiStatus, useMembers, useUsage, useWorkspace } from "@/features/settings/hooks";
 import { useTheme } from "@/hooks/useTheme";
 import { formatDateTime, initials } from "@/lib/utils";
 
@@ -17,11 +18,13 @@ export function SettingsPage() {
   const workspace = useWorkspace();
   const members = useMembers();
   const usage = useUsage();
+  const ai = useAiStatus();
   const { theme, setTheme } = useTheme();
+  const isAdmin = workspace.data?.role === "admin";
 
   return (
     <div>
-      <PageHeader title="Configurações" description="Perfil, workspace, provedores de IA e uso." />
+      <PageHeader title="Configurações" description="Perfil, workspace, recuperação, provedores de IA e uso." />
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -119,6 +122,20 @@ export function SettingsPage() {
 
         <Card className="lg:col-span-2">
           <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <SlidersHorizontal className="size-4 text-primary" aria-hidden /> Recuperação
+            </CardTitle>
+            <CardDescription>
+              Como os trechos são buscados antes da geração: modo (híbrido ou vetorial), quantidade, limiar de similaridade e orçamento de contexto. Ajustes valem para todo o workspace.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RetrievalSettingsCard isAdmin={isAdmin} privacyNotice={ai.data?.notice} />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
             <CardTitle>Uso e limites</CardTitle>
             <CardDescription>Valores de custo são estimativas quando exibidos.</CardDescription>
           </CardHeader>
@@ -135,6 +152,25 @@ export function SettingsPage() {
                   value={usage.data.estimated_cost_usd_month == null ? "Sem estimativa" : `US$ ${usage.data.estimated_cost_usd_month.toFixed(4)}`}
                   hint={`Limites: ${usage.data.limits.max_upload_mb} MB por arquivo · ${usage.data.limits.max_pdf_pages} páginas por PDF`}
                 />
+                {usage.data.feedback ? (
+                  <div className="rounded-lg border border-border p-4 sm:col-span-2 lg:col-span-4" data-testid="feedback-summary">
+                    <p className="text-xs text-muted-foreground">Feedback das respostas</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
+                      <span className="inline-flex items-center gap-1 text-success">
+                        <ThumbsUp className="size-4" aria-hidden /> {usage.data.feedback.positive} útil{usage.data.feedback.positive === 1 ? "" : "s"}
+                      </span>
+                      <span className="inline-flex items-center gap-1 text-destructive">
+                        <ThumbsDown className="size-4" aria-hidden /> {usage.data.feedback.negative} não útil{usage.data.feedback.negative === 1 ? "" : "s"}
+                      </span>
+                      <span className="text-muted-foreground">
+                        de {usage.data.feedback.total_answers} resposta{usage.data.feedback.total_answers === 1 ? "" : "s"}
+                        {usage.data.feedback.total_answers > 0
+                          ? ` · ${Math.round(((usage.data.feedback.positive + usage.data.feedback.negative) / usage.data.feedback.total_answers) * 100)}% avaliadas`
+                          : ""}
+                      </span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">Não foi possível carregar o uso.</p>
