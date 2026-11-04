@@ -1,0 +1,254 @@
+import * as React from "react";
+import { useNavigate, useParams } from "react-router";
+import { AlertTriangle, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/components/ui/toast";
+import { useMe } from "@/features/auth/hooks";
+import { useAiStatus } from "@/features/settings/hooks";
+import { DocumentPicker } from "@/features/documents/DocumentPicker";
+import { DocumentWorkspace } from "@/features/documents/DocumentWorkspace";
+import { ChatComposer } from "@/features/chat/ChatComposer";
+import { ChatThread } from "@/features/chat/ChatThread";
+import { ConversationList } from "@/features/chat/ConversationList";
+import {
+  useConversation,
+  useCreateConversation,
+  useSendFeedback,
+  useSendMessage,
+  useUpdateConversation,
+} from "@/features/chat/hooks";
+import { useIsDesktop } from "@/hooks/useMediaQuery";
+import { errorMessage } from "@/services/api";
+import type { Citation } from "@/types/api";
+import { cn } from "@/lib/utils";
+
+const SUGGESTIONS = [
+  "Qual é o prazo para cancelamento do contrato?",
+  "Resuma as principais obrigações das partes.",
+  "Quais valores e formas de pagamento estão previstos?",
+  "Existe cláusula de confidencialidade? O que ela estabelece?",
+];
+
+interface ViewerState {
+  documentId: string;
+  page: number;
+  chunkId: string | null;
+  citationId: string | null;
+}
+
+export function ChatPage() {
+  const { conversationId } = useParams<{ conversationId: string }>();
+  const navigate = useNavigate();
+  const isDesktop = useIsDesktop();
+  const { toast } = useToast();
+  const { data: user } = useMe();
+  const ai = useAiStatus();
+
+  const [listOpen, setListOpen] = React.useState(true);
+  const [viewer, setViewer] = React.useState<ViewerState | null>(null);
+  const [pendingDocs, setPendingDocs] = React.useState<string[]>([]);
+
+  const conversation = useConversation(conversationId);
+  const create = useCreateConversation();
+  const update = useUpdateConversation();
+  const send = useSendMessage(conversationId ?? "");
+  const feedback = useSendFeedback(conversationId ?? "");
+
+  const selectedDocs = conversationId ? (conversation.data?.document_ids ?? []) : pendingDocs;
+
+  const setSelectedDocs = (ids: string[]) => {
+    if (!conversationId) {
+      setPendingDocs(ids);
+      return;
+    }
+    update.mutate({ id: conversationId, document_ids: ids });
+  };
+
+  const startConversation = async (firstMessage?: string) => {
+    try {
+      const conv = await create.mutateAsync({ document_ids: pendingDocs });
+      navigate(`/chat/${conv.id}`, { state: firstMessage ? { firstMessage } : undefined });
+    } catch (e) {
+      toast({ kind: "error", title: "Não foi possível criar a conversa", description: errorMessage(e) });
+    }
+  };
+
+  const handleSend = async (content: string) => {
+    if (!conversationId) {
+      await startConversation(content);
+      return;
+    }
+    try {
+      await send.mutateAsync({ content });
+    } catch (e) {
+      toast({ kind: "error", title: "Não foi possível enviar a pergunta", description: errorMessage(e) });
+    }
+  };
+
+  // Envia a primeira mensagem após criar a conversa a partir da tela vazia
+  const sentFirstRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const state = window.history.state?.usr as { firstMessage?: string } | undefined;
+    const first = state?.firstMessage;
+    if (conversationId && first && conversation.data && sentFirstRef.current !== conversationId) {
+      sentFirstRef.current = conversationId;
+      window.history.replaceState({ ...window.history.state, usr: {} }, "");
+      void handleSend(first);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId, conversation.data]);
+
+  const openCitation = (c: Citation) => {
+    const target: ViewerState = { documentId: c.document_id, page: c.page_start ?? 1, chunkId: c.chunk_id, citationId: c.id };
+    if (!isDesktop) {
+      navigate(`/documents/${c.document_id}?page=${target.page}&chunk=${c.chunk_id}`);
+      return;
+    }
+    setViewer(target);
+  };
+
+  const handleFeedback = (messageId: string, rating: 1 | -1) => {
+    feedback.mutate(
+      { messageId, rating },
+      { onError: (e) => toast({ kind: "error", title: "Não foi possível registrar o feedback", description: errorMessage(e) }) },
+    );
+  };
+
+  const aiUnavailable = ai.data ? !ai.data.configured : false;
+
+  return (
+    <div className="flex h-full min-h-0">
+      {/* Lista de conversas */}
+      {isDesktop && listOpen ? (
+        <aside className="w-72 shrink-0 border-r border-border bg-sidebar/60">
+          <ConversationList
+            activeId={conversationId}
+            onNew={() => {
+              setPendingDocs([]);
+              navigate("/chat");
+            }}
+            onDeleted={(id) => {
+              if (id === conversationId) navigate("/chat");
+            }}
+          />
+        </aside>
+      ) : null}
+
+      {/* Área principal */}
+      <section className={cn("flex min-w-0 flex-1 flex-col", viewer && isDesktop && "max-w-[55%]")} aria-label="Chat com documentos">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-2">
+          {isDesktop ? (
+            <Button variant="ghost" size="icon-sm" onClick={() => setListOpen((v) => !v)} aria-label={listOpen ? "Ocultar conversas" : "Mostrar conversas"}>
+              {listOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => navigate("/chat")}>
+              Conversas
+            </Button>
+          )}
+          <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {conversationId ? (conversation.data?.title || "Conversa") : "Nova conversa"}
+          </h1>
+          <DocumentPicker value={selectedDocs} onChange={setSelectedDocs} disabled={update.isPending} className="max-w-[16rem]" />
+        </div>
+
+        {aiUnavailable ? (
+          <Alert variant="warning" className="m-3 mb-0">
+            <AlertTriangle />
+            <AlertDescription>
+              Geração com IA indisponível: nenhum provedor configurado. As perguntas serão registradas, mas não haverá resposta gerada.
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {conversationId ? (
+            <ChatThread
+              conversation={conversation.data}
+              isPending={conversation.isPending}
+              isError={conversation.isError}
+              error={conversation.error}
+              onRetry={() => void conversation.refetch()}
+              sending={send.isPending}
+              userName={user?.name}
+              onCitationClick={openCitation}
+              onFeedback={handleFeedback}
+              feedbackPending={feedback.isPending}
+              activeCitationId={viewer?.citationId ?? null}
+              suggestions={SUGGESTIONS}
+              onSuggestion={(s) => void handleSend(s)}
+            />
+          ) : !isDesktop ? (
+            <div className="flex h-full flex-col">
+              <ConversationList
+                activeId={undefined}
+                onNew={() => void startConversation()}
+                creating={create.isPending}
+                className="min-h-0 flex-1"
+              />
+            </div>
+          ) : (
+            <ChatThread
+              conversation={{
+                id: "new",
+                title: "",
+                created_at: "",
+                updated_at: "",
+                message_count: 0,
+                document_ids: pendingDocs,
+                messages: [],
+              }}
+              isPending={false}
+              isError={false}
+              error={null}
+              onRetry={() => {}}
+              sending={create.isPending}
+              userName={user?.name}
+              onCitationClick={openCitation}
+              onFeedback={() => {}}
+              suggestions={SUGGESTIONS}
+              onSuggestion={(s) => void handleSend(s)}
+            />
+          )}
+        </div>
+
+        {(conversationId || isDesktop) ? (
+          <div className="shrink-0 border-t border-border bg-background/80 p-3 backdrop-blur">
+            <div className="mx-auto max-w-4xl">
+              <ChatComposer
+                onSend={(c) => void handleSend(c)}
+                pending={send.isPending || create.isPending}
+                disabled={conversation.isError}
+                hint={
+                  selectedDocs.length === 0
+                    ? "Sem seleção: todos os documentos prontos do workspace serão considerados"
+                    : undefined
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Visualizador lado a lado */}
+      {viewer && isDesktop ? (
+        <aside className="flex min-w-0 flex-1 flex-col border-l border-border" aria-label="Documento citado">
+          <DocumentWorkspace
+            documentId={viewer.documentId}
+            page={viewer.page}
+            onPageChange={(p) => setViewer((v) => (v ? { ...v, page: p } : v))}
+            chunkId={viewer.chunkId}
+            onChunkChange={(c) => setViewer((v) => (v ? { ...v, chunkId: c, citationId: c ? v.citationId : null } : v))}
+            embedded
+            headerExtra={
+              <Button variant="ghost" size="icon-sm" onClick={() => setViewer(null)} aria-label="Fechar visualizador">
+                <X />
+              </Button>
+            }
+          />
+        </aside>
+      ) : null}
+    </div>
+  );
+}
