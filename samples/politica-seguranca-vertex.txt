@@ -1,0 +1,13 @@
+POLÍTICA DE SEGURANÇA DA INFORMAÇÃO - EMPRESA FICTÍCIA VERTEX
+
+1. SENHAS
+As senhas devem ter no mínimo 14 caracteres e ser trocadas a cada 180 dias. É proibido reutilizar
+as últimas 5 senhas.
+
+2. ACESSO REMOTO
+O acesso remoto exige VPN corporativa e autenticação em dois fatores. Sessões ociosas expiram
+após 30 minutos.
+
+3. INCIDENTES
+Incidentes de segurança devem ser reportados em até 2 horas ao time de resposta pelo canal
+#seguranca-incidentes.

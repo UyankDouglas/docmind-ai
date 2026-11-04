@@ -24,6 +24,7 @@ from app.core.exceptions import ForbiddenError
 from app.core.logging import get_logger
 from app.models import Document, DocumentChunk, DocumentStatus, EmbeddingRecord
 from app.providers.embeddings import EmbeddingProvider
+from app.services.locations import location_label, location_type_for
 
 log = get_logger(__name__)
 
@@ -34,6 +35,7 @@ class RetrievalScope:
 
     workspace_id: uuid.UUID
     document_ids: list[uuid.UUID] | None = None  # None = todos os documentos prontos do workspace
+    collection_ids: list[uuid.UUID] | None = None  # união com document_ids quando informado
 
 
 @dataclass(slots=True)
@@ -48,6 +50,21 @@ class RetrievedChunk:
     section_title: str | None
     position: int
     token_count: int
+    mime_type: str = "application/pdf"
+
+    @property
+    def location_type(self) -> str:
+        return location_type_for(self.mime_type)
+
+    @property
+    def location_label(self) -> str:
+        return location_label(
+            location_type=self.location_type,
+            page_start=self.page_start,
+            page_end=self.page_end,
+            section_title=self.section_title,
+            position=self.position,
+        )
 
 
 @dataclass(slots=True)
@@ -80,10 +97,33 @@ class RetrievalService:
             Document.deleted_at.is_(None),
             Document.status == DocumentStatus.READY,
         )
-        if scope.document_ids is not None:
-            if not scope.document_ids:
+        explicit = scope.document_ids is not None or scope.collection_ids is not None
+        if explicit:
+            requested: set[uuid.UUID] = set(scope.document_ids or [])
+            if scope.collection_ids:
+                from app.models import Collection
+
+                allowed_cols = set(
+                    self.db.scalars(
+                        select(Collection.id).where(
+                            Collection.workspace_id == scope.workspace_id,
+                            Collection.id.in_(set(scope.collection_ids)),
+                        )
+                    )
+                )
+                if set(scope.collection_ids) - allowed_cols:
+                    raise ForbiddenError("Uma ou mais coleções não pertencem ao seu workspace.")
+                requested |= set(
+                    self.db.scalars(
+                        select(Document.id).where(
+                            Document.workspace_id == scope.workspace_id,
+                            Document.deleted_at.is_(None),
+                            Document.collection_id.in_(allowed_cols),
+                        )
+                    )
+                )
+            if not requested:
                 return []
-            requested = set(scope.document_ids)
             allowed = set(
                 self.db.scalars(
                     select(Document.id).where(
@@ -133,7 +173,7 @@ class RetrievalService:
         started = time.perf_counter()
         distance = EmbeddingRecord.embedding.cosine_distance(query_vector)
         stmt = (
-            select(DocumentChunk, Document.name, distance.label("distance"))
+            select(DocumentChunk, Document.name, Document.mime_type, distance.label("distance"))
             .join(EmbeddingRecord, EmbeddingRecord.chunk_id == DocumentChunk.id)
             .join(Document, Document.id == DocumentChunk.document_id)
             .where(
@@ -156,7 +196,7 @@ class RetrievalService:
         search_ms = int((time.perf_counter() - started) * 1000)
 
         chunks: list[RetrievedChunk] = []
-        for chunk, doc_name, dist in rows:
+        for chunk, doc_name, mime_type, dist in rows:
             score = 1.0 - float(dist)
             if score < min_similarity:
                 continue
@@ -172,6 +212,7 @@ class RetrievalService:
                     section_title=chunk.section_title,
                     position=chunk.position,
                     token_count=chunk.token_count,
+                    mime_type=mime_type,
                 )
             )
 

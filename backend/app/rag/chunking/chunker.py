@@ -37,6 +37,8 @@ class ChunkingConfig:
     # Mantém citações precisas por página; páginas muito curtas continuam sendo agrupadas.
     respect_pages: bool = settings.chunk_respect_pages
     min_tokens_before_page_break: int = settings.chunk_min_tokens_before_page_break
+    # Seções lógicas (DOCX/TXT) são fronteiras semânticas: limiar menor para fechar o chunk.
+    min_tokens_before_section_break: int = settings.chunk_min_tokens_before_section_break
 
     def __post_init__(self) -> None:
         if self.max_tokens < self.target_tokens:
@@ -130,9 +132,14 @@ def _hash(text: str) -> str:
 
 
 class _Builder:
-    def __init__(self, cfg: ChunkingConfig, counter: TokenCounter) -> None:
+    def __init__(
+        self, cfg: ChunkingConfig, counter: TokenCounter, *, paginated: bool = True
+    ) -> None:
         self.cfg = cfg
         self.counter = counter
+        self.break_threshold = (
+            cfg.min_tokens_before_page_break if paginated else cfg.min_tokens_before_section_break
+        )
         self.chunks: list[ChunkDraft] = []
         self.parts: list[tuple[str, int, int, int]] = []  # (texto, página, char_start, char_end)
         self.tokens = 0
@@ -190,7 +197,7 @@ class _Builder:
             self.cfg.respect_pages
             and self.parts
             and self._current_page() != page
-            and self.tokens >= self.cfg.min_tokens_before_page_break
+            and self.tokens >= self.break_threshold
         ):
             self._flush()
             self.parts, self.tokens = [], 0
@@ -233,9 +240,16 @@ def chunk_document(
 ) -> list[ChunkDraft]:
     cfg = config or ChunkingConfig()
     counter = counter or get_token_counter()
-    builder = _Builder(cfg, counter)
+    builder = _Builder(cfg, counter, paginated=doc.has_real_pages)
+    # Rótulos de seção (DOCX/TXT): a "página" lógica já nasce com título
+    labels = {p.number: p.label for p in doc.pages if p.label}
+    last_page: int | None = None
 
     for block in _blocks_from_document(doc):
+        if block.page != last_page:
+            last_page = block.page
+            if block.page in labels and not block.is_heading:
+                builder.section = labels[block.page][:255]
         if block.is_heading:
             builder.heading(block.text, block.page, block.char_start, block.char_end)
             continue

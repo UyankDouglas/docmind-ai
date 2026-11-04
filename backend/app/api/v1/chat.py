@@ -3,11 +3,12 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import client_ip, get_current_auth
 from app.core.database import get_db
-from app.models import Conversation, Message
+from app.models import Conversation, Document, Message
 from app.schemas.chat import (
     CitationOut,
     ConversationCreate,
@@ -27,14 +28,29 @@ from app.services.auth import AuthContext
 router = APIRouter(tags=["chat"])
 
 
-def message_out(m: Message) -> MessageOut:
+def _mime_map(db: Session, messages: list[Message]) -> dict:
+    ids = {c.document_id for m in messages for c in m.citations if c.document_id}
+    if not ids:
+        return {}
+    rows = db.execute(select(Document.id, Document.mime_type).where(Document.id.in_(ids))).all()
+    return {doc_id: mime for doc_id, mime in rows}
+
+
+def citation_out(c, mimes: dict) -> CitationOut:
+    out = CitationOut.model_validate(c)
+    out.mime_type = mimes.get(c.document_id) if c.document_id else None
+    return out
+
+
+def message_out(m: Message, mimes: dict | None = None) -> MessageOut:
+    mimes = mimes or {}
     return MessageOut(
         id=m.id,
         role=m.role,
         content=m.content,
         created_at=m.created_at,
         status=m.status,
-        citations=[CitationOut.model_validate(c) for c in m.citations],
+        citations=[citation_out(c, mimes) for c in m.citations],
         model=m.model,
         prompt_tokens=m.prompt_tokens,
         completion_tokens=m.completion_tokens,
@@ -45,7 +61,8 @@ def message_out(m: Message) -> MessageOut:
     )
 
 
-def conversation_out(conv: Conversation) -> ConversationOut:
+def conversation_out(conv: Conversation, db: Session) -> ConversationOut:
+    mimes = _mime_map(db, conv.messages)
     return ConversationOut(
         id=conv.id,
         title=conv.title,
@@ -53,7 +70,8 @@ def conversation_out(conv: Conversation) -> ConversationOut:
         updated_at=conv.updated_at,
         message_count=len(conv.messages),
         document_ids=list(conv.document_ids),
-        messages=[message_out(m) for m in conv.messages],
+        collection_ids=list(conv.collection_ids or []),
+        messages=[message_out(m, mimes) for m in conv.messages],
     )
 
 
@@ -64,9 +82,13 @@ def create_conversation(
     db: Session = Depends(get_db),
 ) -> ConversationOut:
     conv = chat_service.create_conversation(
-        db, ctx, title=payload.title, document_ids=payload.document_ids
+        db,
+        ctx,
+        title=payload.title,
+        document_ids=payload.document_ids,
+        collection_ids=payload.collection_ids,
     )
-    return conversation_out(chat_service.get_conversation(db, ctx, conv.id))
+    return conversation_out(chat_service.get_conversation(db, ctx, conv.id), db)
 
 
 @router.get("/conversations", response_model=ConversationList)
@@ -82,6 +104,7 @@ def list_conversations(
                 updated_at=c.updated_at,
                 message_count=n,
                 document_ids=list(c.document_ids),
+                collection_ids=list(c.collection_ids or []),
             )
             for c, n in chat_service.list_conversations(db, ctx)
         ]
@@ -94,7 +117,7 @@ def get_conversation(
     ctx: AuthContext = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> ConversationOut:
-    return conversation_out(chat_service.get_conversation(db, ctx, conversation_id))
+    return conversation_out(chat_service.get_conversation(db, ctx, conversation_id), db)
 
 
 @router.patch("/conversations/{conversation_id}", response_model=ConversationOut)
@@ -106,9 +129,14 @@ def update_conversation(
 ) -> ConversationOut:
     conv = chat_service.get_conversation(db, ctx, conversation_id)
     chat_service.update_conversation(
-        db, ctx, conv, title=payload.title, document_ids=payload.document_ids
+        db,
+        ctx,
+        conv,
+        title=payload.title,
+        document_ids=payload.document_ids,
+        collection_ids=payload.collection_ids,
     )
-    return conversation_out(chat_service.get_conversation(db, ctx, conversation_id))
+    return conversation_out(chat_service.get_conversation(db, ctx, conversation_id), db)
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -137,15 +165,17 @@ def send_message(
         conv,
         content=payload.content,
         document_ids=payload.document_ids,
+        collection_ids=payload.collection_ids,
         ip_address=client_ip(request),
     )
     # Recarrega com citações/feedback
     db.expire_all()
     conv = chat_service.get_conversation(db, ctx, conversation_id)
     by_id = {m.id: m for m in conv.messages}
+    mimes = _mime_map(db, conv.messages)
     return SendMessageResponse(
-        user_message=message_out(by_id[result.user_message.id]),
-        assistant_message=message_out(by_id[result.assistant_message.id]),
+        user_message=message_out(by_id[result.user_message.id], mimes),
+        assistant_message=message_out(by_id[result.assistant_message.id], mimes),
     )
 
 
@@ -159,4 +189,4 @@ def feedback(
     msg = chat_service.set_feedback(
         db, ctx, message_id, rating=payload.rating, comment=payload.comment
     )
-    return message_out(msg)
+    return message_out(msg, _mime_map(db, [msg]))

@@ -11,7 +11,16 @@
 - **Normalização** (`normalize.py`): NFC, remoção de caracteres de controle, junção de hifenização
   de fim de linha e *reflow* de parágrafos (o pypdf emite uma quebra por linha visual; linhas que
   continuam a frase são unidas; títulos, listas e fins de frase preservam a quebra).
-- DOCX e TXT: previstos para a Fase 2 (`get_extractor` rejeita outros tipos hoje).
+- **DOCX (python-docx)**: a unidade de localização é a **seção lógica** (cada parágrafo com estilo de
+  título inicia uma seção; o texto anterior ao primeiro título fica em "Início"). Parágrafos e tabelas são
+  lidos na ordem do corpo; tabelas viram linhas `célula | célula`. Arquivos criptografados são rejeitados.
+  Nenhuma página é inventada: as citações mostram "Seção N · Título".
+- **TXT**: encoding por BOM → UTF-8 estrito → charset_normalizer (com preferência por cp1252 quando a
+  detecção aponta um encoding não ocidental em texto curto, registrada como aviso). Títulos
+  (numeração, caixa alta, Markdown `#`) iniciam seções; sem títulos, o texto é dividido em blocos de
+  ~6000 caracteres em limites de parágrafo ("Bloco N").
+- O texto extraído por página/seção é persistido em `document_pages` (visualizador de texto para DOCX/TXT
+  e base para a busca textual da Fase 3).
 
 ## 2. Chunking (`rag/chunking`, versão `v1`)
 
@@ -31,7 +40,10 @@ Algoritmo:
 3. Parágrafos maiores que o máximo são divididos por sentenças; sentenças gigantes, por tokens.
 4. A sobreposição reaproveita as últimas partes do chunk anterior (≈ `overlap_tokens`).
 5. Cada chunk registra `position`, `page_start/page_end`, `section_title`, offsets, `content_hash`
-   (SHA-256) e `chunking_version`.
+   (SHA-256) e `chunking_version`. Para DOCX/TXT, `page_start/page_end` são índices de seção e o rótulo
+   da seção vigente vira `section_title`.
+6. Troca de página/seção fecha o chunk quando ele já tem ≥ 200 tokens (`CHUNK_RESPECT_PAGES`), o que
+   mantém as citações precisas por página; páginas muito curtas continuam agrupadas.
 
 Contagem de tokens com **tiktoken (cl100k_base)**; na ausência do encoder, há uma aproximação
 explícita (não tratamos caracteres como tokens).

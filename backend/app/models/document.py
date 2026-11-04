@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,10 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     indexing_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # Metadados da extração (título do PDF, autor, aviso de OCR, etc.) — sem conteúdo do documento
     extraction_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String(40)), nullable=False, default=list)
+    collection_id: Mapped[uuid.UUID | None] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("collections.id", ondelete="SET NULL"), index=True
+    )
 
     owner: Mapped[User] = relationship()
     chunks: Mapped[list[DocumentChunk]] = relationship(
@@ -73,6 +77,71 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     @property
     def status_enum(self) -> DocumentStatus:
         return DocumentStatus(self.status)
+
+    @property
+    def location_type(self) -> str:
+        """ "page" para PDFs (paginação real); "section" para DOCX/TXT."""
+        if self.mime_type == "application/pdf":
+            return "page"
+        return "section"
+
+    @property
+    def warnings(self) -> list[str]:
+        return list((self.extraction_meta or {}).get("warnings") or [])
+
+    @property
+    def has_text_layer(self) -> bool:
+        return bool(self.char_count) and self.char_count >= 50
+
+
+class DocumentVersion(UUIDPrimaryKeyMixin, Base):
+    """Histórico de versões de indexação de um documento (uma linha por processamento)."""
+
+    __tablename__ = "document_versions"
+    __table_args__ = (
+        UniqueConstraint("document_id", "version", name="uq_document_version"),
+        Index("ix_document_versions_document", "document_id"),
+    )
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=DocumentStatus.UPLOADED)
+    chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    chunking_version: Mapped[str | None] = mapped_column(String(20))
+    embedding_model: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_message: Mapped[str | None] = mapped_column(Text)
+
+
+class DocumentPage(UUIDPrimaryKeyMixin, Base):
+    """Texto extraído por unidade de localização (página do PDF ou seção lógica de DOCX/TXT).
+
+    Usado pelo visualizador de texto e como base para busca textual (Fase 3)."""
+
+    __tablename__ = "document_pages"
+    __table_args__ = (
+        UniqueConstraint("document_id", "indexing_version", "number", name="uq_document_page"),
+        Index("ix_document_pages_document", "document_id", "indexing_version"),
+    )
+
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        PG_UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    indexing_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    number: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255))
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
 
 class DocumentChunk(UUIDPrimaryKeyMixin, Base):

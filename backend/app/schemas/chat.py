@@ -20,6 +20,9 @@ class CitationOut(ORMModel):
     page_end: int | None
     section_title: str | None
     snippet: str
+    location_type: str = "page"
+    location_label: str = ""
+    mime_type: str | None = None
 
 
 class FeedbackOut(BaseModel):
@@ -48,6 +51,7 @@ class ConversationSummaryOut(BaseModel):
     updated_at: datetime
     message_count: int
     document_ids: list[uuid.UUID]
+    collection_ids: list[uuid.UUID] = []
 
 
 class ConversationOut(ConversationSummaryOut):
@@ -61,16 +65,19 @@ class ConversationList(BaseModel):
 class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     document_ids: list[uuid.UUID] = Field(default_factory=list, max_length=50)
+    collection_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
 
 
 class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     document_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
+    collection_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
 
 
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1)
     document_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
+    collection_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
 
     @field_validator("content")
     @classmethod
@@ -98,6 +105,7 @@ class FeedbackRequest(BaseModel):
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=1000)
     document_ids: list[uuid.UUID] | None = Field(default=None, max_length=50)
+    collection_ids: list[uuid.UUID] | None = Field(default=None, max_length=20)
     top_k: int | None = Field(default=None, ge=1, le=30)
 
 
@@ -110,6 +118,9 @@ class SearchResultOut(BaseModel):
     section_title: str | None
     text: str
     score: float
+    location_type: str
+    location_label: str
+    mime_type: str
 
 
 class SearchResponse(BaseModel):

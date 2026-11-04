@@ -22,7 +22,11 @@ def search(
     db: Session = Depends(get_db),
 ) -> SearchResponse:
     provider = get_embedding_provider()  # 503 ai_unavailable se não configurado
-    scope = RetrievalScope(workspace_id=ctx.workspace_id, document_ids=payload.document_ids)
+    scope = RetrievalScope(
+        workspace_id=ctx.workspace_id,
+        document_ids=payload.document_ids,
+        collection_ids=payload.collection_ids,
+    )
     result = RetrievalService(db, provider).retrieve(payload.query, scope, top_k=payload.top_k)
     record_usage(
         db,
@@ -48,6 +52,9 @@ def search(
                 section_title=c.section_title,
                 text=c.text,
                 score=c.score,
+                location_type=c.location_type,
+                location_label=c.location_label,
+                mime_type=c.mime_type,
             )
             for c in result.chunks
         ],

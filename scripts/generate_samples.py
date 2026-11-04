@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "backend"))
 
+from tests.doc_factory import manual_docx, politica_txt  # noqa: E402
 from tests.pdf_factory import contrato_pdf, politica_pdf, scanned_like_pdf  # noqa: E402
 
 
@@ -25,6 +26,8 @@ def main() -> None:
         "contrato-prestacao-servicos.pdf": contrato_pdf(),
         "politica-ferias-com-instrucao-maliciosa.pdf": politica_pdf(),
         "digitalizado-sem-texto.pdf": scanned_like_pdf(),
+        "manual-operacao-orbita.docx": manual_docx(),
+        "politica-seguranca-vertex.txt": politica_txt(),
     }
     for name, data in files.items():
         (out / name).write_bytes(data)

@@ -184,3 +184,90 @@ Regras de geração: a resposta do assistente cita fontes com marcadores `[n]`; 
 
 ### Uso
 | GET | `/usage` | `Usage` |
+
+---
+
+# Adições da Fase 2 — Biblioteca Documental
+
+## Tipos novos e alterados
+
+```ts
+type LocationType = "page" | "section";   // PDF = page; DOCX/TXT = section (sem paginação real)
+
+interface Collection {
+  id: string; name: string; description: string | null; color: string | null;
+  document_count: number; created_at: string; updated_at: string;
+}
+
+interface Document {
+  // ...campos da Fase 1, mais:
+  location_type: LocationType;           // como interpretar page_start/page_end
+  tags: string[];
+  collection_id: string | null;
+  collection_name: string | null;
+  has_text_layer: boolean;               // false quando a extração não achou texto
+  warnings: string[];                    // avisos da extração (ex.: páginas sem texto)
+}
+
+interface DocumentVersion {
+  id: string; version: number; status: DocumentStatus; chunk_count: number;
+  page_count: number | null; chunking_version: string; embedding_model: string | null;
+  created_at: string; processed_at: string | null; error_message: string | null;
+}
+
+interface Chunk {
+  // ...Fase 1, mais:
+  location_type: LocationType;
+  location_label: string;                // "Página 4", "Páginas 3–4", "Seção 2 · CLÁUSULA 6", "Trecho 7"
+}
+
+interface Citation {
+  // ...Fase 1, mais:
+  location_type: LocationType;
+  location_label: string;
+  mime_type: string | null;              // para a UI decidir o visualizador (PDF.js ou texto)
+}
+
+interface SearchResult { /* ...Fase 1, mais: */ location_type: LocationType; location_label: string; mime_type: string }
+
+interface ConversationSummary { /* ...Fase 1, mais: */ collection_ids: string[] }
+```
+
+`DocumentStatus` ganha `cancelled` como resultado de `POST /documents/{id}/cancel` (já existia no enum).
+
+## Upload
+
+- `POST /documents/upload` aceita **PDF, DOCX e TXT** (extensão + assinatura: `%PDF-`, `PK\x03\x04` com
+  `word/document.xml`, texto decodificável sem bytes nulos). Campos opcionais do multipart:
+  `collection_id` (uuid) e `tags` (string separada por vírgula).
+- Upload múltiplo: o frontend envia um arquivo por requisição, em fila, respeitando
+  `MAX_CONCURRENT_UPLOADS_PER_USER` (429 `usage_limit_exceeded` quando excedido).
+
+## Documentos
+
+| Método | Rota | Corpo / query | Observações |
+|---|---|---|---|
+| GET | `/documents` | + `collection_id`, `tag`, `mime_type` (`application/pdf` \| `application/vnd.openxmlformats-officedocument.wordprocessingml.document` \| `text/plain`), `sort` (`created_at` \| `name` \| `size_bytes`, prefixo `-` para desc) | |
+| PATCH | `/documents/{id}` | `{ name?, tags?, collection_id? }` (`collection_id: null` remove da coleção) | admin/editor |
+| POST | `/documents/{id}/cancel` | — | Cancelamento cooperativo do processamento em curso; 409 se já terminou |
+| GET | `/documents/{id}/versions` | — | `{ items: DocumentVersion[] }`, mais recente primeiro |
+| GET | `/documents/{id}/text` | query `section` opcional | `{ document_id, location_type, sections: [{ index, label, text, chunk_ids: string[] }] }` — usado pelo visualizador de DOCX/TXT (texto extraído por seção, sem renderização do arquivo original) |
+| GET | `/documents/tags` | — | `{ items: [{ tag, count }] }` do workspace |
+
+## Coleções
+
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| GET | `/collections` | — | `{ items: Collection[] }` |
+| POST | `/collections` | `{ name, description?, color? }` | `201 Collection` (nome único por workspace → 409 `collection_exists`) |
+| GET | `/collections/{id}` | — | `Collection` |
+| PATCH | `/collections/{id}` | `{ name?, description?, color? }` | `Collection` |
+| DELETE | `/collections/{id}` | — | 204; documentos ficam sem coleção (não são excluídos) |
+
+Papéis: criar/editar/excluir coleções exige admin/editor.
+
+## Escopo por coleção
+
+- `POST /search`, `POST /conversations`, `PATCH /conversations/{id}` e `POST /conversations/{id}/messages`
+  aceitam `collection_ids?: string[]` além de `document_ids`. Escopo efetivo = união dos documentos das coleções
+  com os `document_ids` informados; vazio em ambos = todos os documentos prontos do workspace.

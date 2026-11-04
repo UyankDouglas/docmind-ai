@@ -60,9 +60,23 @@ class TextExtractor(Protocol):
     def extract(self, data: bytes, *, max_pages: int | None = None) -> ExtractedDocument: ...
 
 
-def get_extractor(mime_type: str) -> TextExtractor:
-    from app.rag.extraction.pdf import PdfExtractor
+PDF_MIME = "application/pdf"
+DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+TXT_MIME = "text/plain"
+SUPPORTED_MIME_TYPES = (PDF_MIME, DOCX_MIME, TXT_MIME)
 
-    if mime_type == "application/pdf":
+
+def get_extractor(mime_type: str) -> TextExtractor:
+    if mime_type == PDF_MIME:
+        from app.rag.extraction.pdf import PdfExtractor
+
         return PdfExtractor()
+    if mime_type == DOCX_MIME:
+        from app.rag.extraction.docx import DocxExtractor
+
+        return DocxExtractor()
+    if mime_type == TXT_MIME:
+        from app.rag.extraction.txt import TxtExtractor
+
+        return TxtExtractor()
     raise InvalidDocumentError(f"Nenhum extrator disponível para o tipo {mime_type}.")

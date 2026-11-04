@@ -21,7 +21,9 @@ from app.core.logging import get_logger
 from app.models import (
     Document,
     DocumentChunk,
+    DocumentPage,
     DocumentStatus,
+    DocumentVersion,
     JobStatus,
     ProcessingJob,
     UsageKind,
@@ -66,6 +68,24 @@ class DocumentPipeline:
     def _set_status(self, doc: Document, status: DocumentStatus) -> None:
         doc.status = status
         self.db.commit()
+
+    def _update_version(self, doc: Document, **fields) -> None:
+        version = self.db.scalar(
+            select(DocumentVersion).where(
+                DocumentVersion.document_id == doc.id,
+                DocumentVersion.version == doc.indexing_version,
+            )
+        )
+        if version is None:
+            version = DocumentVersion(
+                document_id=doc.id,
+                workspace_id=doc.workspace_id,
+                version=doc.indexing_version,
+                created_at=utcnow(),
+            )
+            self.db.add(version)
+        for key, value in fields.items():
+            setattr(version, key, value)
 
     def _check_cancel(self, job: ProcessingJob, doc: Document) -> None:
         self.db.refresh(job)
@@ -117,10 +137,33 @@ class DocumentPipeline:
             }
             self.db.commit()
             if not extracted.has_sufficient_text:
-                raise ExtractionError(
-                    "O documento não contém texto extraível (provável digitalização). "
-                    "OCR ainda não está disponível nesta versão."
+                if doc.mime_type == "application/pdf":
+                    raise ExtractionError(
+                        "O documento não contém texto extraível (provável digitalização). "
+                        "OCR ainda não está disponível nesta versão."
+                    )
+                raise ExtractionError("O documento não contém texto suficiente para indexação.")
+
+            # Texto por página/seção (visualizador de texto e busca textual futura)
+            self.db.execute(
+                delete(DocumentPage).where(
+                    DocumentPage.document_id == doc.id,
+                    DocumentPage.indexing_version == doc.indexing_version,
                 )
+            )
+            for page in extracted.pages:
+                self.db.add(
+                    DocumentPage(
+                        document_id=doc.id,
+                        workspace_id=doc.workspace_id,
+                        indexing_version=doc.indexing_version,
+                        number=page.number,
+                        label=(page.label or None) and page.label[:255],
+                        text=page.text,
+                        char_count=page.char_count,
+                    )
+                )
+            self.db.commit()
 
             # ---- chunking
             self._check_cancel(job, doc)
@@ -185,6 +228,12 @@ class DocumentPipeline:
                     DocumentChunk.indexing_version != doc.indexing_version,
                 )
             )
+            self.db.execute(
+                delete(DocumentPage).where(
+                    DocumentPage.document_id == doc.id,
+                    DocumentPage.indexing_version != doc.indexing_version,
+                )
+            )
             doc.chunk_count = int(
                 self.db.scalar(
                     select(func.count())
@@ -199,6 +248,15 @@ class DocumentPipeline:
             doc.processed_at = utcnow()
             doc.error_message = None
             doc.status = DocumentStatus.READY
+            self._update_version(
+                doc,
+                status=DocumentStatus.READY,
+                chunk_count=doc.chunk_count,
+                page_count=extracted.page_count,
+                chunking_version=drafts[0].chunking_version if drafts else None,
+                embedding_model=self.provider.model,
+                processed_at=doc.processed_at,
+            )
             job.status = JobStatus.SUCCEEDED
             job.finished_at = utcnow()
             duration_ms = int((time.perf_counter() - started) * 1000)
@@ -236,6 +294,10 @@ class DocumentPipeline:
             job.finished_at = utcnow()
             if doc.deleted_at is None:
                 doc.status = DocumentStatus.CANCELLED
+                doc.error_message = "Processamento cancelado."
+                self._update_version(
+                    doc, status=DocumentStatus.CANCELLED, error_message=doc.error_message
+                )
             self.db.commit()
             return PipelineOutcome(DocumentStatus.CANCELLED, 0, doc.page_count, 0)
 
@@ -266,6 +328,7 @@ class DocumentPipeline:
         self.db.rollback()
         doc.status = DocumentStatus.FAILED
         doc.error_message = message
+        self._update_version(doc, status=DocumentStatus.FAILED, error_message=message)
         job.status = JobStatus.FAILED
         job.error_message = message
         job.finished_at = utcnow()

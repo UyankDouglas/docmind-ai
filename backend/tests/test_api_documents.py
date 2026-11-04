@@ -57,8 +57,7 @@ def test_download_streams_original_file(client):
 def test_rejects_non_pdf_and_fake_extension(client):
     register(client)
     assert (
-        upload(client, b"hello world", name="notas.txt", content_type="text/plain").status_code
-        == 415
+        upload(client, b"hello world", name="notas.csv", content_type="text/csv").status_code == 415
     )
     fake = upload(client, b"MZ\x90\x00 not really a pdf", name="virus.pdf")
     assert fake.status_code == 415

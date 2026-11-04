@@ -30,6 +30,9 @@ class Conversation(UUIDPrimaryKeyMixin, TimestampMixin, SoftDeleteMixin, Base):
     document_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
     )
+    collection_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(PG_UUID(as_uuid=True)), nullable=False, default=list
+    )
 
     messages: Mapped[list[Message]] = relationship(
         back_populates="conversation",
@@ -90,6 +93,8 @@ class MessageCitation(UUIDPrimaryKeyMixin, Base):
     page_start: Mapped[int | None] = mapped_column(Integer)
     page_end: Mapped[int | None] = mapped_column(Integer)
     section_title: Mapped[str | None] = mapped_column(String(255))
+    location_type: Mapped[str] = mapped_column(String(10), nullable=False, default="page")
+    location_label: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     snippet: Mapped[str] = mapped_column(Text, nullable=False)
     score: Mapped[float | None] = mapped_column()
 

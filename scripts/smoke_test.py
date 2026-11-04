@@ -99,6 +99,41 @@ def main() -> int:
             print("FALHA: status inesperado")
             return 1
 
+        # Fase 2: DOCX e TXT com citações por seção
+        for name, mime, question, expected in (
+            ("manual-operacao-orbita.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+             "O backup completo do banco de dados deve ser executado diariamente com qual retenção de dias?", "35"),
+            ("politica-seguranca-vertex.txt", "text/plain",
+             "As senhas devem ter no mínimo quantos caracteres e ser trocadas a cada quantos dias?", "14"),
+        ):
+            path = ROOT / "samples" / name
+            if not path.exists():
+                print(f"(amostra {name} ausente; execute scripts/generate_samples.py)")
+                continue
+            with path.open("rb") as fh:
+                r = c.post("/documents/upload", files={"file": (name, fh, mime)}, headers=headers)
+            _check(r, 202, f"upload {name}")
+            did = r.json()["id"]
+            t0 = time.time()
+            while time.time() - t0 < args.timeout:
+                st = c.get(f"/documents/{did}/status").json()
+                if st["status"] in ("ready", "failed", "cancelled"):
+                    break
+                time.sleep(1.5)
+            if st["status"] != "ready":
+                print(f"FALHA: {name} -> {st['status']}: {st.get('error_message')}")
+                return 1
+            r = c.post(f"/conversations/{conv}/messages", json={"content": question, "document_ids": [did]}, headers=headers)
+            _check(r, 200, f"pergunta {name}")
+            a3 = r.json()["assistant_message"]
+            labels = [cit["location_label"] for cit in a3["citations"]]
+            print(f"{name}: {st['page_count']} seções, resposta {a3['status']}, fontes: {labels}")
+            if a3["status"] == "ok" and (not labels or any("Página" in lbl for lbl in labels)):
+                print("FALHA: citação de DOCX/TXT deveria usar seção, não página")
+                return 1
+            if a3["status"] == "ok" and expected not in a3["content"]:
+                print(f"(aviso) resposta não menciona '{expected}' — esperado apenas com LLM real)")
+
         r = c.get(f"/documents/{doc_id}/download")
         _check(r, 200, "download")
         print("download:", len(r.content), "bytes,", r.headers.get("content-type"))

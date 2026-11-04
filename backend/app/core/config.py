@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     chunking_version: str = "v1"
     chunk_respect_pages: bool = True
     chunk_min_tokens_before_page_break: int = 200
+    chunk_min_tokens_before_section_break: int = 80
     retrieval_top_k: int = 8
     retrieval_min_similarity: float = 0.15
     max_context_tokens: int = 6000

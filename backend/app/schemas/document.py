@@ -30,6 +30,19 @@ class DocumentOut(ORMModel):
     processed_at: datetime | None
     indexing_version: int
     owner: DocumentOwner
+    # Fase 2
+    location_type: str
+    tags: list[str]
+    collection_id: uuid.UUID | None
+    collection_name: str | None = None
+    has_text_layer: bool
+    warnings: list[str]
+
+
+class DocumentUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    tags: list[str] | None = Field(default=None, max_length=50)
+    collection_id: uuid.UUID | None = None
 
 
 class ProcessingJobOut(ORMModel):
@@ -53,7 +66,24 @@ class DocumentStatusOut(BaseModel):
     jobs: list[ProcessingJobOut]
 
 
-class ChunkOut(ORMModel):
+class DocumentVersionOut(ORMModel):
+    id: uuid.UUID
+    version: int
+    status: str
+    chunk_count: int
+    page_count: int | None
+    chunking_version: str | None
+    embedding_model: str | None
+    created_at: datetime
+    processed_at: datetime | None
+    error_message: str | None
+
+
+class DocumentVersionList(BaseModel):
+    items: list[DocumentVersionOut]
+
+
+class ChunkOut(BaseModel):
     id: uuid.UUID
     document_id: uuid.UUID
     position: int
@@ -62,14 +92,31 @@ class ChunkOut(ORMModel):
     section_title: str | None
     text: str
     token_count: int
+    location_type: str
+    location_label: str
 
 
 class ChunkList(BaseModel):
     items: list[ChunkOut]
 
 
-class DocumentListQuery(BaseModel):
-    q: str | None = Field(default=None, max_length=200)
-    status: str | None = None
-    page: int = Field(default=1, ge=1)
-    page_size: int = Field(default=20, ge=1, le=100)
+class TextSectionOut(BaseModel):
+    index: int
+    label: str
+    text: str
+    chunk_ids: list[uuid.UUID]
+
+
+class DocumentTextOut(BaseModel):
+    document_id: uuid.UUID
+    location_type: str
+    sections: list[TextSectionOut]
+
+
+class TagCount(BaseModel):
+    tag: str
+    count: int
+
+
+class TagList(BaseModel):
+    items: list[TagCount]

@@ -30,6 +30,7 @@ from app.rag.generation.citations import NO_EVIDENCE_ANSWER
 from app.rag.retrieval import RetrievalScope, RetrievalService
 from app.services.audit import record_audit
 from app.services.auth import AuthContext
+from app.services.collections import resolve_collection_ids
 from app.services.usage import enforce_question_limit, record_usage
 
 log = get_logger(__name__)
@@ -69,14 +70,21 @@ def _validate_document_scope(
 
 
 def create_conversation(
-    db: Session, ctx: AuthContext, *, title: str | None, document_ids: list[uuid.UUID]
+    db: Session,
+    ctx: AuthContext,
+    *,
+    title: str | None,
+    document_ids: list[uuid.UUID],
+    collection_ids: list[uuid.UUID] | None = None,
 ) -> Conversation:
     scope = _validate_document_scope(db, ctx, document_ids)
+    collections = resolve_collection_ids(db, ctx, collection_ids or [])
     conv = Conversation(
         workspace_id=ctx.workspace_id,
         user_id=ctx.user.id,
         title=(title or "Nova conversa").strip()[:200],
         document_ids=scope,
+        collection_ids=collections,
     )
     db.add(conv)
     db.commit()
@@ -130,11 +138,14 @@ def update_conversation(
     *,
     title: str | None,
     document_ids: list[uuid.UUID] | None,
+    collection_ids: list[uuid.UUID] | None = None,
 ) -> Conversation:
     if title is not None:
         conv.title = title.strip()[:200]
     if document_ids is not None:
         conv.document_ids = _validate_document_scope(db, ctx, document_ids)
+    if collection_ids is not None:
+        conv.collection_ids = resolve_collection_ids(db, ctx, collection_ids)
     db.commit()
     db.refresh(conv)
     return conv
@@ -172,6 +183,7 @@ def ask(
     *,
     content: str,
     document_ids: list[uuid.UUID] | None,
+    collection_ids: list[uuid.UUID] | None = None,
     llm: LLMProvider | None = None,
     ip_address: str | None = None,
 ) -> AskResult:
@@ -179,6 +191,8 @@ def ask(
 
     if document_ids is not None:
         conv.document_ids = _validate_document_scope(db, ctx, document_ids)
+    if collection_ids is not None:
+        conv.collection_ids = resolve_collection_ids(db, ctx, collection_ids)
 
     user_msg = Message(
         conversation_id=conv.id,
@@ -195,9 +209,11 @@ def ask(
     db.flush()
 
     started = time.perf_counter()
+    has_scope = bool(conv.document_ids) or bool(conv.collection_ids)
     scope = RetrievalScope(
         workspace_id=ctx.workspace_id,
-        document_ids=list(conv.document_ids) if conv.document_ids else None,
+        document_ids=list(conv.document_ids) if has_scope else None,
+        collection_ids=list(conv.collection_ids) if has_scope else None,
     )
 
     # ---- provedores (sem provedor => resposta honesta de indisponibilidade)
@@ -386,6 +402,8 @@ def _store_assistant(
                 page_start=chunk.page_start,
                 page_end=chunk.page_end,
                 section_title=chunk.section_title,
+                location_type=chunk.location_type,
+                location_label=chunk.location_label,
                 snippet=_snippet(chunk.text),
                 score=chunk.score,
             )
