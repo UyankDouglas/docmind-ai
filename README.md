@@ -48,18 +48,20 @@ Resposta: "O contrato pode ser rescindido mediante aviso prévio de 45 dias [1]�
 Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o PDF na página, com o trecho
 ```
 
-## Funcionalidades (Fase 1)
+## Funcionalidades (Fases 1 e 2)
 
 - Cadastro, login, logout; workspace pessoal criado automaticamente; papéis admin/editor/viewer.
-- Biblioteca de documentos: upload de PDF (drag-and-drop, múltiplos), status real de processamento
-  (`enviado → validando → extraindo → dividindo em trechos → gerando embeddings → indexando → pronto`),
-  busca, filtro por status, reprocessamento, exclusão.
+- Biblioteca de documentos: upload de **PDF, DOCX e TXT** (drag-and-drop, fila com múltiplos envios), status real de
+  processamento (`enviado → validando → extraindo → dividindo em trechos → gerando embeddings → indexando → pronto`),
+  **coleções**, **tags**, filtros (status, tipo, coleção, tag), ordenação, renomear, reprocessar, cancelar, excluir,
+  histórico de versões de indexação.
 - Pipeline próprio: extração por página (pypdf), normalização, chunking com tiktoken, embeddings,
   indexação no pgvector — executado por workers Celery.
 - Chat com Documentos: conversas persistentes, seleção de documentos, respostas com marcadores `[n]`,
   bloco de fontes, feedback 👍/👎, estados honestos (`sem evidência`, `IA indisponível`).
 - Visualizador PDF.js lado a lado com o chat: ao clicar na fonte abre a página certa e destaca o
-  trecho quando ele é localizado com exatidão (caso contrário mostra o trecho no painel).
+  trecho quando ele é localizado com exatidão (caso contrário mostra o trecho no painel). Para DOCX/TXT, um
+  visualizador de texto por **seções** (sem páginas inventadas) com destaque do trecho citado.
 - Pesquisa semântica independente do chat (lista de trechos com score, documento e página).
 - Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, tema claro/escuro.
 - Controle de uso: limites de perguntas/uploads por hora, tamanho e páginas por arquivo, tokens de contexto e saída.
@@ -99,10 +101,10 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 |---|---|
 | Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 4, componentes estilo shadcn/ui (Radix), React Router 7, TanStack Query 5, React Hook Form + Zod, Lucide, PDF.js (`pdfjs-dist`) |
 | Backend | Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, psycopg 3, pgvector, Celery, Redis, Argon2id, structlog |
-| Processamento | pypdf, tiktoken, chunking e metadados próprios |
+| Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (53 testes), Vitest + Testing Library (28 testes), Playwright (Fase 6) |
+| Testes | Pytest (69 testes), Vitest + Testing Library (45 testes), Playwright (Fase 6) |
 
 ## Como executar
 
@@ -172,7 +174,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 
 ## Limitações atuais
 
-- Apenas PDF com camada de texto (DOCX/TXT na Fase 2; OCR avaliado na Fase 5).
+- PDF precisa ter camada de texto (OCR avaliado na Fase 5); DOCX/TXT são exibidos como texto extraído, sem a formatação original.
 - Chunks de ~700 tokens: em documentos curtos a citação pode cobrir um intervalo de páginas.
 - Busca apenas vetorial (híbrida com Full-Text Search na Fase 3); sem streaming de respostas.
 - O provedor `fake` serve para testar a mecânica; a qualidade das respostas depende de um LLM real.
@@ -187,7 +189,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 | Fase | Escopo | Status |
 |---|---|---|
 | 1 | Fundação e RAG funcional (PDF → chat com citações) | ✅ concluída e validada com a stack Docker completa |
-| 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ⏳ |
+| 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ✅ concluída e validada com a stack Docker |
 | 3 | Busca híbrida, streaming, configurações de recuperação | ⏳ |
 | 4 | Resumos hierárquicos, comparação entre documentos, exportação | ⏳ |
 | 5 | Administração, limites de custo, auditoria, retenção, OCR | ⏳ |
