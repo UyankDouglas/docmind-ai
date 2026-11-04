@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
@@ -24,13 +26,14 @@ from app.models import (
 )
 from app.models.base import utcnow
 from app.providers.embeddings import get_embedding_provider
-from app.providers.llm import LLMMessage, LLMProvider, get_llm_provider
+from app.providers.llm import LLMMessage, LLMProvider, LLMResult, get_llm_provider
 from app.rag.generation import build_context, build_messages, validate_citations
 from app.rag.generation.citations import NO_EVIDENCE_ANSWER
 from app.rag.retrieval import RetrievalScope, RetrievalService
 from app.services.audit import record_audit
 from app.services.auth import AuthContext
 from app.services.collections import resolve_collection_ids
+from app.services.retrieval_settings import get_retrieval_settings
 from app.services.usage import enforce_question_limit, record_usage
 
 log = get_logger(__name__)
@@ -111,7 +114,9 @@ def get_conversation(db: Session, ctx: AuthContext, conversation_id: uuid.UUID) 
     return conv
 
 
-def list_conversations(db: Session, ctx: AuthContext) -> list[tuple[Conversation, int]]:
+def list_conversations(
+    db: Session, ctx: AuthContext, *, q: str | None = None
+) -> list[tuple[Conversation, int]]:
     count_sq = (
         select(Message.conversation_id, func.count(Message.id).label("n"))
         .group_by(Message.conversation_id)
@@ -124,6 +129,7 @@ def list_conversations(db: Session, ctx: AuthContext) -> list[tuple[Conversation
             Conversation.workspace_id == ctx.workspace_id,
             Conversation.user_id == ctx.user.id,
             Conversation.deleted_at.is_(None),
+            *([Conversation.title.ilike(f"%{q.strip()}%")] if q and q.strip() else []),
         )
         .order_by(Conversation.updated_at.desc())
         .limit(100)
@@ -176,6 +182,16 @@ def _recent_history(conv: Conversation) -> list[LLMMessage]:
     return history
 
 
+class AskEvent:
+    """Evento do pipeline de pergunta (consumido pelo endpoint síncrono e pelo SSE)."""
+
+    __slots__ = ("kind", "payload")
+
+    def __init__(self, kind: str, payload: Any) -> None:
+        self.kind = kind
+        self.payload = payload
+
+
 def ask(
     db: Session,
     ctx: AuthContext,
@@ -187,6 +203,46 @@ def ask(
     llm: LLMProvider | None = None,
     ip_address: str | None = None,
 ) -> AskResult:
+    """Versão síncrona: consome o pipeline e devolve as duas mensagens persistidas."""
+    user_msg: Message | None = None
+    assistant: Message | None = None
+    for event in ask_stream(
+        db,
+        ctx,
+        conv,
+        content=content,
+        document_ids=document_ids,
+        collection_ids=collection_ids,
+        llm=llm,
+        ip_address=ip_address,
+        stream_tokens=False,
+    ):
+        if event.kind == "user_message":
+            user_msg = event.payload
+        elif event.kind == "done":
+            assistant = event.payload
+    assert user_msg is not None and assistant is not None
+    return AskResult(user_msg, assistant)
+
+
+def ask_stream(
+    db: Session,
+    ctx: AuthContext,
+    conv: Conversation,
+    *,
+    content: str,
+    document_ids: list[uuid.UUID] | None,
+    collection_ids: list[uuid.UUID] | None = None,
+    llm: LLMProvider | None = None,
+    ip_address: str | None = None,
+    stream_tokens: bool = True,
+) -> Iterator[AskEvent]:
+    """Pipeline completo como gerador de eventos.
+
+    Eventos: `user_message` (Message), `context` (lista de RetrievedChunk enviados ao modelo, ordem = [n]),
+    `delta` (str, só com stream_tokens=True), `done` (Message do assistente persistida), `error` (dict).
+    O texto final só é persistido/emitido após a validação estrutural das citações.
+    """
     enforce_question_limit(db, ctx.user.id)
 
     if document_ids is not None:
@@ -206,7 +262,8 @@ def ask(
         conv.title = content[:80]
     conv.messages.append(user_msg)
     db.add(user_msg)
-    db.flush()
+    db.commit()
+    yield AskEvent("user_message", user_msg)
 
     started = time.perf_counter()
     has_scope = bool(conv.document_ids) or bool(conv.collection_ids)
@@ -215,6 +272,7 @@ def ask(
         document_ids=list(conv.document_ids) if has_scope else None,
         collection_ids=list(conv.collection_ids) if has_scope else None,
     )
+    rs = get_retrieval_settings(ctx.workspace)
 
     # ---- provedores (sem provedor => resposta honesta de indisponibilidade)
     try:
@@ -233,7 +291,9 @@ def ask(
             started,
         )
         db.commit()
-        return AskResult(user_msg, assistant)
+        yield AskEvent("context", [])
+        yield AskEvent("done", assistant)
+        return
 
     if not ctx.workspace.external_ai_enabled and llm.name != "fake":
         assistant = _store_assistant(
@@ -248,21 +308,19 @@ def ask(
             started,
         )
         db.commit()
-        return AskResult(user_msg, assistant)
+        yield AskEvent("context", [])
+        yield AskEvent("done", assistant)
+        return
 
-    # ---- recuperação
-    retrieval = RetrievalService(db, embedding_provider).retrieve(content, scope)
-    retrieval_meta = {
-        "top_k": retrieval.top_k,
-        "min_similarity": retrieval.min_similarity,
-        "embedding_model": retrieval.embedding_model,
-        "scoped_documents": [str(d) for d in retrieval.scoped_document_ids],
-        "retrieved": [
-            {"chunk_id": str(c.chunk_id), "document_id": str(c.document_id), "score": c.score}
-            for c in retrieval.chunks
-        ],
-        "retrieval_latency_ms": retrieval.total_latency_ms,
-    }
+    # ---- recuperação (configuração do workspace)
+    retrieval = RetrievalService(db, embedding_provider).retrieve(
+        content,
+        scope,
+        mode=rs.mode,
+        top_k=rs.top_k,
+        min_similarity=rs.min_similarity,
+        rrf_k=rs.rrf_k,
+    )
     record_usage(
         db,
         workspace_id=ctx.workspace_id,
@@ -275,6 +333,38 @@ def ask(
         reference_type="message",
         reference_id=user_msg.id,
     )
+
+    context = build_context(retrieval.chunks, max_tokens=rs.max_context_tokens)
+    in_context = {c.chunk_id for c in context.chunks}
+    retrieval_meta = {
+        "mode": retrieval.mode,
+        "top_k": retrieval.top_k,
+        "min_similarity": retrieval.min_similarity,
+        "max_context_tokens": rs.max_context_tokens,
+        "rrf_k": retrieval.rrf_k,
+        "embedding_model": retrieval.embedding_model,
+        "scoped_documents": [str(d) for d in retrieval.scoped_document_ids],
+        "vector_candidates": retrieval.vector_candidates,
+        "lexical_candidates": retrieval.lexical_candidates,
+        "candidates": [
+            {
+                "chunk_id": str(c.chunk_id),
+                "document_id": str(c.document_id),
+                "document_name": c.document_name,
+                "location_label": c.location_label,
+                "score": c.score,
+                "vector_score": c.vector_score,
+                "lexical_score": c.lexical_score,
+                "in_context": c.chunk_id in in_context,
+                "snippet": _snippet(c.text, 200),
+            }
+            for c in retrieval.chunks
+        ],
+        "retrieval_latency_ms": retrieval.total_latency_ms,
+        "context_tokens": context.tokens,
+        "context_chunks": len(context.chunks),
+        "context_truncated": context.truncated,
+    }
 
     if not retrieval.chunks:
         assistant = _store_assistant(
@@ -300,15 +390,30 @@ def ask(
             extra={"skipped_generation": True},
         )
         db.commit()
-        return AskResult(user_msg, assistant)
+        yield AskEvent("context", [])
+        yield AskEvent("done", assistant)
+        return
 
-    # ---- contexto + geração
-    context = build_context(retrieval.chunks, max_tokens=settings.max_context_tokens)
+    yield AskEvent("context", list(context.chunks))
+
+    # ---- geração
     messages = build_messages(content, context, history=_recent_history(conv))
+    gen_started = time.perf_counter()
     try:
-        result = llm.generate(messages, max_tokens=settings.max_output_tokens)
+        if stream_tokens:
+            result = None
+            for item in llm.stream(messages, max_tokens=settings.max_output_tokens):
+                if isinstance(item, LLMResult):
+                    result = item
+                else:
+                    yield AskEvent("delta", item)
+            if result is None:
+                raise RuntimeError("Stream encerrado sem resultado final")
+        else:
+            result = llm.generate(messages, max_tokens=settings.max_output_tokens)
     except Exception as exc:
         log.warning("llm_generation_failed", error_type=type(exc).__name__)
+        retrieval_meta["generation_ms"] = int((time.perf_counter() - gen_started) * 1000)
         assistant = _store_assistant(
             db,
             conv,
@@ -321,12 +426,12 @@ def ask(
             started,
         )
         db.commit()
-        return AskResult(user_msg, assistant)
+        yield AskEvent("error", {"code": "generation_failed", "message": assistant.content})
+        yield AskEvent("done", assistant)
+        return
 
     validation = validate_citations(result.text, context.ids)
-    retrieval_meta["context_tokens"] = context.tokens
-    retrieval_meta["context_chunks"] = len(context.chunks)
-    retrieval_meta["context_truncated"] = context.truncated
+    retrieval_meta["generation_ms"] = result.latency_ms
     retrieval_meta["invalid_citations_removed"] = validation.invalid_indices
 
     if validation.looks_like_abstention and not validation.has_valid_citations:
@@ -364,12 +469,85 @@ def ask(
         target_type="conversation",
         target_id=conv.id,
         ip_address=ip_address,
-        details={"documents": len(retrieval.scoped_document_ids), "citations": len(cited)},
+        details={
+            "documents": len(retrieval.scoped_document_ids),
+            "citations": len(cited),
+            "mode": retrieval.mode,
+            "streamed": stream_tokens,
+        },
     )
     conv.updated_at = utcnow()
     db.commit()
     db.refresh(assistant)
-    return AskResult(user_msg, assistant)
+    yield AskEvent("done", assistant)
+
+
+def get_message_for_user(db: Session, ctx: AuthContext, message_id: uuid.UUID) -> Message:
+    msg = db.scalar(
+        select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .options(selectinload(Message.citations), selectinload(Message.feedback))
+        .where(
+            Message.id == message_id,
+            Message.workspace_id == ctx.workspace_id,
+            Conversation.user_id == ctx.user.id,
+            Conversation.deleted_at.is_(None),
+        )
+    )
+    if msg is None:
+        raise NotFoundError("Mensagem não encontrada.", code="message_not_found")
+    return msg
+
+
+def retrieval_evidence(db: Session, ctx: AuthContext, message_id: uuid.UUID) -> dict[str, Any]:
+    """Explica como a resposta foi produzida a partir do snapshot persistido em retrieval_meta."""
+    msg = get_message_for_user(db, ctx, message_id)
+    if msg.role != MessageRole.ASSISTANT:
+        raise ForbiddenError("Evidências só existem para respostas do assistente.")
+    meta = msg.retrieval_meta or {}
+    cited_by_chunk = {str(c.chunk_id): c.index for c in msg.citations if c.chunk_id}
+    candidates = []
+    for c in meta.get("candidates", []):
+        idx = cited_by_chunk.get(c.get("chunk_id"))
+        candidates.append(
+            {
+                "chunk_id": c.get("chunk_id"),
+                "document_id": c.get("document_id"),
+                "document_name": c.get("document_name", ""),
+                "location_label": c.get("location_label", ""),
+                "score": c.get("score", 0.0),
+                "vector_score": c.get("vector_score"),
+                "lexical_score": c.get("lexical_score"),
+                "in_context": bool(c.get("in_context")),
+                "cited": idx is not None,
+                "citation_index": idx,
+                "snippet": c.get("snippet", ""),
+            }
+        )
+    return {
+        "message_id": msg.id,
+        "mode": meta.get("mode", "vector"),
+        "params": {
+            "top_k": meta.get("top_k", settings.retrieval_top_k),
+            "min_similarity": meta.get("min_similarity", settings.retrieval_min_similarity),
+            "max_context_tokens": meta.get("max_context_tokens", settings.max_context_tokens),
+            "embedding_model": meta.get("embedding_model"),
+        },
+        "scoped_document_ids": meta.get("scoped_documents", []),
+        "candidates": candidates,
+        "context_tokens": meta.get("context_tokens", 0),
+        "context_truncated": bool(meta.get("context_truncated", False)),
+        "invalid_citations_removed": meta.get("invalid_citations_removed", []),
+        "latency": {
+            "retrieval_ms": meta.get("retrieval_latency_ms", 0),
+            "generation_ms": meta.get("generation_ms"),
+        },
+        "usage": {
+            "prompt_tokens": msg.prompt_tokens,
+            "completion_tokens": msg.completion_tokens,
+            "model": msg.model,
+        },
+    }
 
 
 def _store_assistant(
@@ -422,19 +600,7 @@ def _snippet(text: str, limit: int = 300) -> str:
 def set_feedback(
     db: Session, ctx: AuthContext, message_id: uuid.UUID, *, rating: int, comment: str | None
 ) -> Message:
-    msg = db.scalar(
-        select(Message)
-        .join(Conversation, Conversation.id == Message.conversation_id)
-        .options(selectinload(Message.citations), selectinload(Message.feedback))
-        .where(
-            Message.id == message_id,
-            Message.workspace_id == ctx.workspace_id,
-            Conversation.user_id == ctx.user.id,
-            Conversation.deleted_at.is_(None),
-        )
-    )
-    if msg is None:
-        raise NotFoundError("Mensagem não encontrada.", code="message_not_found")
+    msg = get_message_for_user(db, ctx, message_id)
     if msg.role != MessageRole.ASSISTANT:
         raise ForbiddenError("Só é possível avaliar respostas do assistente.")
     if msg.feedback is None:

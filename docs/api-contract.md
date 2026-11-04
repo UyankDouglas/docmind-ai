@@ -271,3 +271,89 @@ Papéis: criar/editar/excluir coleções exige admin/editor.
 - `POST /search`, `POST /conversations`, `PATCH /conversations/{id}` e `POST /conversations/{id}/messages`
   aceitam `collection_ids?: string[]` além de `document_ids`. Escopo efetivo = união dos documentos das coleções
   com os `document_ids` informados; vazio em ambos = todos os documentos prontos do workspace.
+
+---
+
+# Adições da Fase 3 — Busca avançada e Chat
+
+## Tipos
+
+```ts
+type RetrievalMode = "vector" | "hybrid";
+
+interface RetrievalSettings {
+  mode: RetrievalMode;            // padrão "hybrid"
+  top_k: number;                  // 1..30
+  min_similarity: number;         // 0..1 (aplicado ao score vetorial)
+  max_context_tokens: number;     // 1000..12000
+  rrf_k: number;                  // constante da fusão RRF (padrão 60)
+}
+
+interface WorkspaceSettings {
+  external_ai_enabled: boolean;
+  retrieval: RetrievalSettings;
+}
+
+interface SearchResult {
+  // ...Fases 1–2, mais:
+  score: number;                  // score final (fundido quando hybrid; similaridade quando vector)
+  vector_score: number | null;    // similaridade cosseno (null se veio só do léxico)
+  lexical_score: number | null;   // ts_rank_cd normalizado (null se veio só do vetor)
+  vector_rank: number | null;
+  lexical_rank: number | null;
+  highlight: string | null;       // trecho com <mark> do FTS quando houver
+}
+
+interface SearchResponse { /* ... */ mode: RetrievalMode; vector_candidates: number; lexical_candidates: number }
+
+interface SearchHistoryItem { id: string; query: string; mode: RetrievalMode; result_count: number; latency_ms: number; created_at: string }
+
+interface RetrievalEvidence {
+  message_id: string;
+  mode: RetrievalMode;
+  params: { top_k: number; min_similarity: number; max_context_tokens: number; embedding_model: string };
+  scoped_document_ids: string[];
+  candidates: Array<{
+    chunk_id: string; document_id: string; document_name: string; location_label: string;
+    score: number; vector_score: number | null; lexical_score: number | null;
+    in_context: boolean; cited: boolean; citation_index: number | null; snippet: string;
+  }>;
+  context_tokens: number; context_truncated: boolean; invalid_citations_removed: number[];
+  latency: { retrieval_ms: number; generation_ms: number | null };
+  usage: { prompt_tokens: number | null; completion_tokens: number | null; model: string | null };
+}
+
+interface FeedbackSummary { positive: number; negative: number; total_answers: number }
+```
+
+`Message.retrieval_meta` não é exposto diretamente; use `GET /messages/{id}/retrieval`.
+
+## Endpoints
+
+| Método | Rota | Corpo / query | Resposta |
+|---|---|---|---|
+| GET | `/workspaces/current/settings` | — | `WorkspaceSettings` |
+| PATCH | `/workspaces/current/settings` | `{ external_ai_enabled?, retrieval?: Partial<RetrievalSettings> }` | `WorkspaceSettings` (somente admin; 403 caso contrário; 422 fora dos limites) |
+| POST | `/search` | `+ mode?: RetrievalMode` (padrão = configuração do workspace) | `SearchResponse` |
+| GET | `/search/history` | `limit?` (padrão 20) | `{ items: SearchHistoryItem[] }` — pesquisas do usuário no workspace |
+| DELETE | `/search/history` | — | 204 (limpa o histórico do usuário) |
+| GET | `/conversations` | `+ q?` (busca no título) | `{ items }` |
+| GET | `/messages/{id}/retrieval` | — | `RetrievalEvidence` (somente mensagens do assistente do próprio usuário) |
+| GET | `/usage` | — | `+ feedback: FeedbackSummary` |
+| POST | `/conversations/{id}/messages/stream` | `SendMessageRequest` | **SSE** (`text/event-stream`), eventos abaixo |
+
+### Streaming (SSE)
+
+Mesma validação do endpoint síncrono. Sequência de eventos (`event:` + `data:` JSON, uma linha):
+
+1. `user_message` → `Message` do usuário já persistida.
+2. `context` → `{ sources: Array<{ index, chunk_id, document_id, document_name, location_label, location_type, mime_type, snippet }> }` —
+   trechos **efetivamente enviados** ao modelo, com os índices `[n]` que o modelo pode citar. A UI pode
+   mostrar “Consultando N trechos…”.
+3. `delta` → `{ text }` (0..n vezes) — texto parcial **não validado**; a UI renderiza como rascunho.
+4. `done` → `{ assistant_message: Message }` — mensagem final persistida, com texto após a validação de
+   citações (marcadores inválidos removidos) e `citations` definitivas. **A UI deve substituir o rascunho por este conteúdo.**
+5. `error` → `{ code, message }` quando a geração falha após o início (a mensagem de erro também é persistida com `status = "error"`).
+
+Em `no_evidence` e `ai_unavailable` não há `delta`: vêm `user_message`, `context` (vazio) e `done`.
+Heartbeat: linhas de comentário `: ping` a cada 15 s. Cabeçalhos: `Cache-Control: no-store`, `X-Accel-Buffering: no`.

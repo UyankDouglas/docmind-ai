@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -42,6 +43,12 @@ class LLMProvider(Protocol):
     def generate(
         self, messages: list[LLMMessage], *, max_tokens: int, temperature: float = 0.1
     ) -> LLMResult: ...
+
+    def stream(
+        self, messages: list[LLMMessage], *, max_tokens: int, temperature: float = 0.1
+    ) -> Iterator[str | LLMResult]:
+        """Gera deltas de texto (str) e, por último, um LLMResult com o texto completo e o uso."""
+        ...
 
 
 class OpenAILLMProvider:
@@ -80,6 +87,70 @@ class OpenAILLMProvider:
             provider=self.name,
             finish_reason=choice.finish_reason,
         )
+
+    def stream(
+        self, messages: list[LLMMessage], *, max_tokens: int, temperature: float = 0.1
+    ) -> Iterator[str | LLMResult]:
+        started = time.perf_counter()
+        parts: list[str] = []
+        usage = None
+        model = self.model
+        finish_reason = None
+        stream = self._client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": m.role, "content": m.content} for m in messages],  # type: ignore[misc]
+            max_completion_tokens=max_tokens,
+            temperature=temperature,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
+        try:
+            for event in stream:
+                delta, usage_ev, model_ev, finish = _parse_stream_event(event)
+                if delta:
+                    parts.append(delta)
+                    yield delta
+                if usage_ev is not None:
+                    usage = usage_ev
+                if model_ev:
+                    model = model_ev
+                if finish:
+                    finish_reason = finish
+        finally:
+            close = getattr(stream, "close", None)
+            if close:
+                close()
+        yield LLMResult(
+            text="".join(parts).strip(),
+            model=model,
+            prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+            completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            provider=self.name,
+            finish_reason=finish_reason,
+        )
+
+
+def _parse_stream_event(event):
+    """Extrai (delta, usage, model, finish_reason) de um ChatCompletionChunk."""
+    # Chunk bruto (ChatCompletionChunk)
+    choices = getattr(event, "choices", None)
+    if choices is not None:
+        delta = ""
+        finish = None
+        if choices:
+            delta = getattr(getattr(choices[0], "delta", None), "content", None) or ""
+            finish = getattr(choices[0], "finish_reason", None)
+        return delta, getattr(event, "usage", None), getattr(event, "model", None), finish
+    # Evento do helper de streaming
+    etype = getattr(event, "type", "")
+    if etype == "content.delta":
+        return getattr(event, "delta", "") or "", None, None, None
+    if etype == "chunk":
+        chunk = getattr(event, "chunk", None)
+        if chunk is not None:
+            return _parse_stream_event(chunk)
+    return "", None, None, None
 
 
 _EVIDENCE_RE = re.compile(r"<trecho id=\"(\d+)\"[^>]*>\n?(.*?)\n?</trecho>", re.DOTALL)
@@ -131,6 +202,15 @@ class FakeLLMProvider:
             provider=self.name,
             finish_reason="stop",
         )
+
+    def stream(
+        self, messages: list[LLMMessage], *, max_tokens: int, temperature: float = 0.1
+    ) -> Iterator[str | LLMResult]:
+        result = self.generate(messages, max_tokens=max_tokens, temperature=temperature)
+        words = result.text.split(" ")
+        for i, word in enumerate(words):
+            yield word if i == len(words) - 1 else word + " "
+        yield result
 
 
 _provider: LLMProvider | None = None

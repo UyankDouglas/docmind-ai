@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import json
 import uuid
+from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import client_ip, get_current_auth
 from app.core.database import get_db
+from app.core.exceptions import AppError
 from app.models import Conversation, Document, Message
 from app.schemas.chat import (
     CitationOut,
@@ -19,6 +23,7 @@ from app.schemas.chat import (
     FeedbackOut,
     FeedbackRequest,
     MessageOut,
+    RetrievalEvidenceOut,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -93,7 +98,9 @@ def create_conversation(
 
 @router.get("/conversations", response_model=ConversationList)
 def list_conversations(
-    ctx: AuthContext = Depends(get_current_auth), db: Session = Depends(get_db)
+    q: str | None = Query(default=None, max_length=200),
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
 ) -> ConversationList:
     return ConversationList(
         items=[
@@ -106,7 +113,7 @@ def list_conversations(
                 document_ids=list(c.document_ids),
                 collection_ids=list(c.collection_ids or []),
             )
-            for c, n in chat_service.list_conversations(db, ctx)
+            for c, n in chat_service.list_conversations(db, ctx, q=q)
         ]
     )
 
@@ -177,6 +184,92 @@ def send_message(
         user_message=message_out(by_id[result.user_message.id], mimes),
         assistant_message=message_out(by_id[result.assistant_message.id], mimes),
     )
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
+
+
+@router.post("/conversations/{conversation_id}/messages/stream")
+def send_message_stream(
+    conversation_id: uuid.UUID,
+    payload: SendMessageRequest,
+    request: Request,
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Mesma validação do endpoint síncrono; resposta em Server-Sent Events."""
+    conv = chat_service.get_conversation(db, ctx, conversation_id)
+    ip = client_ip(request)
+
+    def generate() -> Iterator[str]:
+        try:
+            for ev in chat_service.ask_stream(
+                db,
+                ctx,
+                conv,
+                content=payload.content,
+                document_ids=payload.document_ids,
+                collection_ids=payload.collection_ids,
+                ip_address=ip,
+                stream_tokens=True,
+            ):
+                if ev.kind == "user_message":
+                    yield _sse("user_message", message_out(ev.payload).model_dump(mode="json"))
+                elif ev.kind == "context":
+                    yield _sse(
+                        "context",
+                        {
+                            "sources": [
+                                {
+                                    "index": i + 1,
+                                    "chunk_id": str(c.chunk_id),
+                                    "document_id": str(c.document_id),
+                                    "document_name": c.document_name,
+                                    "location_label": c.location_label,
+                                    "location_type": c.location_type,
+                                    "mime_type": c.mime_type,
+                                    "snippet": c.text[:200],
+                                }
+                                for i, c in enumerate(ev.payload)
+                            ]
+                        },
+                    )
+                elif ev.kind == "delta":
+                    yield _sse("delta", {"text": ev.payload})
+                elif ev.kind == "error":
+                    yield _sse("error", ev.payload)
+                elif ev.kind == "done":
+                    msg = chat_service.get_message_for_user(db, ctx, ev.payload.id)
+                    yield _sse(
+                        "done",
+                        {
+                            "assistant_message": message_out(msg, _mime_map(db, [msg])).model_dump(
+                                mode="json"
+                            )
+                        },
+                    )
+        except AppError as exc:
+            yield _sse("error", {"code": exc.code, "message": exc.message})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.get("/messages/{message_id}/retrieval", response_model=RetrievalEvidenceOut)
+def message_retrieval(
+    message_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> dict:
+    return chat_service.retrieval_evidence(db, ctx, message_id)
 
 
 @router.post("/messages/{message_id}/feedback", response_model=MessageOut)

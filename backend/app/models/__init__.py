@@ -20,6 +20,7 @@ from app.models.enums import (
     UsageKind,
     WorkspaceRole,
 )
+from app.models.search import SearchQuery
 from app.models.usage import AuditLog, UsageRecord
 from app.models.user import User, UserSession
 from app.models.workspace import Workspace, WorkspaceMember
@@ -43,6 +44,7 @@ __all__ = [
     "MessageRole",
     "MessageStatus",
     "ProcessingJob",
+    "SearchQuery",
     "UsageKind",
     "UsageRecord",
     "User",

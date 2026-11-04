@@ -1,16 +1,19 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_auth
 from app.core.database import get_db
-from app.models import UsageKind
-from app.providers.embeddings import get_embedding_provider
-from app.rag.retrieval import RetrievalScope, RetrievalService
-from app.schemas.chat import SearchRequest, SearchResponse, SearchResultOut
+from app.schemas.chat import (
+    SearchHistoryItem,
+    SearchHistoryList,
+    SearchRequest,
+    SearchResponse,
+    SearchResultOut,
+)
+from app.services import search as search_service
 from app.services.auth import AuthContext
-from app.services.usage import record_usage
 
 router = APIRouter(tags=["pesquisa"])
 
@@ -21,25 +24,15 @@ def search(
     ctx: AuthContext = Depends(get_current_auth),
     db: Session = Depends(get_db),
 ) -> SearchResponse:
-    provider = get_embedding_provider()  # 503 ai_unavailable se não configurado
-    scope = RetrievalScope(
-        workspace_id=ctx.workspace_id,
+    result = search_service.run_search(
+        db,
+        ctx,
+        query=payload.query,
         document_ids=payload.document_ids,
         collection_ids=payload.collection_ids,
+        top_k=payload.top_k,
+        mode=payload.mode,
     )
-    result = RetrievalService(db, provider).retrieve(payload.query, scope, top_k=payload.top_k)
-    record_usage(
-        db,
-        workspace_id=ctx.workspace_id,
-        user_id=ctx.user.id,
-        kind=UsageKind.SEARCH,
-        provider=provider.name,
-        model=result.embedding_model,
-        prompt_tokens=result.embedding_tokens,
-        latency_ms=result.total_latency_ms,
-        extra={"results": len(result.chunks)},
-    )
-    db.commit()
     return SearchResponse(
         query=result.query,
         results=[
@@ -55,9 +48,47 @@ def search(
                 location_type=c.location_type,
                 location_label=c.location_label,
                 mime_type=c.mime_type,
+                vector_score=c.vector_score,
+                lexical_score=c.lexical_score,
+                vector_rank=c.vector_rank,
+                lexical_rank=c.lexical_rank,
+                highlight=c.highlight,
             )
             for c in result.chunks
         ],
         latency_ms=result.total_latency_ms,
         embedding_model=result.embedding_model,
+        mode=result.mode,
+        vector_candidates=result.vector_candidates,
+        lexical_candidates=result.lexical_candidates,
     )
+
+
+@router.get("/search/history", response_model=SearchHistoryList)
+def history(
+    limit: int = Query(default=20, ge=1, le=100),
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> SearchHistoryList:
+    items = search_service.list_history(db, ctx, limit=limit)
+    return SearchHistoryList(
+        items=[
+            SearchHistoryItem(
+                id=i.id,
+                query=i.query,
+                mode=i.mode,
+                result_count=i.result_count,
+                latency_ms=i.latency_ms,
+                created_at=i.created_at,
+            )
+            for i in items
+        ]
+    )
+
+
+@router.delete("/search/history", status_code=status.HTTP_204_NO_CONTENT)
+def clear_history(
+    ctx: AuthContext = Depends(get_current_auth), db: Session = Depends(get_db)
+) -> Response:
+    search_service.clear_history(db, ctx)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

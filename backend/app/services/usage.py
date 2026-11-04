@@ -118,7 +118,36 @@ def usage_summary(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> d
         if cost_sum is not None and cost_rows == total_rows and total_rows > 0
         else None
     )
+    from app.models import Conversation, Feedback, Message, MessageRole
+
+    fb = db.execute(
+        select(
+            func.count(Feedback.id).filter(Feedback.rating > 0),
+            func.count(Feedback.id).filter(Feedback.rating < 0),
+        )
+        .select_from(Feedback)
+        .join(Message, Message.id == Feedback.message_id)
+        .where(Message.workspace_id == workspace_id)
+    ).one()
+    total_answers = int(
+        db.scalar(
+            select(func.count())
+            .select_from(Message)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Message.workspace_id == workspace_id,
+                Message.role == MessageRole.ASSISTANT,
+                Conversation.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
     return {
+        "feedback": {
+            "positive": int(fb[0] or 0),
+            "negative": int(fb[1] or 0),
+            "total_answers": total_answers,
+        },
         "questions_last_hour": _count_last_hour(db, user_id, UsageKind.QUESTION),
         "uploads_last_hour": _count_last_hour(db, user_id, UsageKind.UPLOAD),
         "prompt_tokens_month": int(prompt_tokens),

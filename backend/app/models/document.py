@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
+    Computed,
     DateTime,
     ForeignKey,
     Index,
@@ -15,7 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -152,6 +153,7 @@ class DocumentChunk(UUIDPrimaryKeyMixin, Base):
         ),
         Index("ix_chunks_workspace_document", "workspace_id", "document_id"),
         Index("ix_chunks_document_page", "document_id", "page_start"),
+        Index("ix_chunks_text_search", "text_search", postgresql_using="gin"),
     )
 
     document_id: Mapped[uuid.UUID] = mapped_column(
@@ -172,6 +174,10 @@ class DocumentChunk(UUIDPrimaryKeyMixin, Base):
     section_title: Mapped[str | None] = mapped_column(String(255))
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     chunking_version: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Busca textual (Full-Text Search) em português; coluna gerada pelo próprio PostgreSQL
+    text_search: Mapped[str | None] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('portuguese', text)", persisted=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     document: Mapped[Document] = relationship(back_populates="chunks")

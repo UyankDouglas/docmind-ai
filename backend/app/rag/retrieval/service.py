@@ -1,11 +1,11 @@
-"""RetrievalService — busca semântica com isolamento por workspace.
+"""RetrievalService — busca semântica, textual e híbrida com isolamento por workspace.
 
 Responsabilidades:
-- Validar o escopo autorizado (workspace da sessão + documentos acessíveis e prontos).
+- Validar o escopo autorizado (workspace da sessão + documentos/coleções acessíveis e prontos).
 - Gerar o embedding da pergunta.
-- Buscar chunks por similaridade cosseno (pgvector, busca exata nesta fase).
-- Filtrar por workspace, documentos e modelo de embedding compatível.
-- Retornar trechos com metadados e métricas.
+- Buscar candidatos por similaridade cosseno (pgvector, exata) e, no modo híbrido, por
+  Full-Text Search do PostgreSQL (`tsvector` em português, `websearch_to_tsquery`).
+- Fundir os rankings com Reciprocal Rank Fusion e devolver trechos com metadados e métricas.
 
 O `workspace_id` vem sempre da sessão autenticada — nunca do cliente.
 """
@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -24,9 +24,13 @@ from app.core.exceptions import ForbiddenError
 from app.core.logging import get_logger
 from app.models import Document, DocumentChunk, DocumentStatus, EmbeddingRecord
 from app.providers.embeddings import EmbeddingProvider
+from app.rag.retrieval.fusion import reciprocal_rank_fusion
 from app.services.locations import location_label, location_type_for
 
 log = get_logger(__name__)
+
+TS_CONFIG = "portuguese"
+MODES = ("vector", "hybrid")
 
 
 @dataclass(slots=True)
@@ -51,6 +55,11 @@ class RetrievedChunk:
     position: int
     token_count: int
     mime_type: str = "application/pdf"
+    vector_score: float | None = None
+    lexical_score: float | None = None
+    vector_rank: int | None = None
+    lexical_rank: int | None = None
+    highlight: str | None = None
 
     @property
     def location_type(self) -> str:
@@ -78,6 +87,10 @@ class RetrievalResult:
     top_k: int
     min_similarity: float
     scoped_document_ids: list[uuid.UUID] = field(default_factory=list)
+    mode: str = "vector"
+    vector_candidates: int = 0
+    lexical_candidates: int = 0
+    rrf_k: int = 60
 
     @property
     def total_latency_ms(self) -> int:
@@ -139,15 +152,77 @@ class RetrievalService:
             stmt = stmt.where(Document.id.in_(requested))
         return list(self.db.scalars(stmt))
 
+    # ---------------------------------------------------------------- candidatos
+    def _isolation_filters(self, workspace_id: uuid.UUID, doc_ids: list[uuid.UUID]) -> list:
+        return [
+            DocumentChunk.workspace_id == workspace_id,
+            Document.workspace_id == workspace_id,
+            DocumentChunk.document_id.in_(doc_ids),
+            DocumentChunk.indexing_version == Document.indexing_version,
+            Document.deleted_at.is_(None),
+        ]
+
+    def _vector_candidates(
+        self,
+        query_vector: list[float],
+        workspace_id: uuid.UUID,
+        doc_ids: list[uuid.UUID],
+        limit: int,
+    ) -> list[tuple[DocumentChunk, str, str, float]]:
+        distance = EmbeddingRecord.embedding.cosine_distance(query_vector)
+        stmt = (
+            select(DocumentChunk, Document.name, Document.mime_type, distance.label("distance"))
+            .join(EmbeddingRecord, EmbeddingRecord.chunk_id == DocumentChunk.id)
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(
+                EmbeddingRecord.workspace_id == workspace_id,
+                EmbeddingRecord.document_id.in_(doc_ids),
+                # Nunca mistura embeddings de modelos diferentes
+                EmbeddingRecord.model == self.provider.model,
+                EmbeddingRecord.dimensions == self.provider.dimensions,
+                *self._isolation_filters(workspace_id, doc_ids),
+            )
+            .order_by(distance.asc())
+            .limit(limit)
+        )
+        return [(c, n, m, 1.0 - float(d)) for c, n, m, d in self.db.execute(stmt).all()]
+
+    def _lexical_candidates(
+        self, query: str, workspace_id: uuid.UUID, doc_ids: list[uuid.UUID], limit: int
+    ) -> list[tuple[DocumentChunk, str, str, float, str | None]]:
+        tsquery = func.websearch_to_tsquery(TS_CONFIG, query)
+        rank = func.ts_rank_cd(DocumentChunk.text_search, tsquery)
+        headline = func.ts_headline(
+            TS_CONFIG,
+            DocumentChunk.text,
+            tsquery,
+            "StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15, MaxFragments=2",
+        )
+        stmt = (
+            select(DocumentChunk, Document.name, Document.mime_type, rank.label("rank"), headline)
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .where(
+                DocumentChunk.text_search.op("@@")(tsquery),
+                *self._isolation_filters(workspace_id, doc_ids),
+            )
+            .order_by(rank.desc(), DocumentChunk.position.asc())
+            .limit(limit)
+        )
+        return [(c, n, m, float(r), h) for c, n, m, r, h in self.db.execute(stmt).all()]
+
     # ---------------------------------------------------------------- busca
     def retrieve(
         self,
         query: str,
         scope: RetrievalScope,
         *,
+        mode: str = "vector",
         top_k: int | None = None,
         min_similarity: float | None = None,
+        rrf_k: int = 60,
     ) -> RetrievalResult:
+        if mode not in MODES:
+            raise ValueError(f"modo de recuperação inválido: {mode}")
         top_k = top_k or settings.retrieval_top_k
         min_similarity = (
             settings.retrieval_min_similarity if min_similarity is None else min_similarity
@@ -168,66 +243,96 @@ class RetrievalService:
                 top_k,
                 min_similarity,
                 [],
+                mode=mode,
+                rrf_k=rrf_k,
             )
 
         started = time.perf_counter()
-        distance = EmbeddingRecord.embedding.cosine_distance(query_vector)
-        stmt = (
-            select(DocumentChunk, Document.name, Document.mime_type, distance.label("distance"))
-            .join(EmbeddingRecord, EmbeddingRecord.chunk_id == DocumentChunk.id)
-            .join(Document, Document.id == DocumentChunk.document_id)
-            .where(
-                # Filtros de isolamento — aplicados em TODAS as tabelas envolvidas
-                EmbeddingRecord.workspace_id == scope.workspace_id,
-                DocumentChunk.workspace_id == scope.workspace_id,
-                Document.workspace_id == scope.workspace_id,
-                EmbeddingRecord.document_id.in_(doc_ids),
-                # Nunca mistura embeddings de modelos diferentes
-                EmbeddingRecord.model == self.provider.model,
-                EmbeddingRecord.dimensions == self.provider.dimensions,
-                # Somente a versão de indexação ativa do documento
-                DocumentChunk.indexing_version == Document.indexing_version,
-                Document.deleted_at.is_(None),
-            )
-            .order_by(distance.asc())
-            .limit(top_k)
+        # No modo híbrido buscamos mais candidatos em cada ranking para a fusão ter material
+        candidate_limit = top_k if mode == "vector" else max(top_k * 2, 10)
+        vec_rows = self._vector_candidates(
+            query_vector, scope.workspace_id, doc_ids, candidate_limit
         )
-        rows = self.db.execute(stmt).all()
+        vec_rows = [row for row in vec_rows if row[3] >= min_similarity]
+        lex_rows = (
+            self._lexical_candidates(query, scope.workspace_id, doc_ids, candidate_limit)
+            if mode == "hybrid"
+            else []
+        )
         search_ms = int((time.perf_counter() - started) * 1000)
 
-        chunks: list[RetrievedChunk] = []
-        for chunk, doc_name, mime_type, dist in rows:
-            score = 1.0 - float(dist)
-            if score < min_similarity:
-                continue
-            chunks.append(
-                RetrievedChunk(
-                    chunk_id=chunk.id,
-                    document_id=chunk.document_id,
-                    document_name=doc_name,
-                    text=chunk.text,
-                    score=round(score, 4),
-                    page_start=chunk.page_start,
-                    page_end=chunk.page_end,
-                    section_title=chunk.section_title,
-                    position=chunk.position,
-                    token_count=chunk.token_count,
-                    mime_type=mime_type,
-                )
+        by_id: dict[uuid.UUID, RetrievedChunk] = {}
+        for rank, (chunk, name, mime, sim) in enumerate(vec_rows, start=1):
+            by_id[chunk.id] = RetrievedChunk(
+                chunk_id=chunk.id,
+                document_id=chunk.document_id,
+                document_name=name,
+                text=chunk.text,
+                score=round(sim, 4),
+                page_start=chunk.page_start,
+                page_end=chunk.page_end,
+                section_title=chunk.section_title,
+                position=chunk.position,
+                token_count=chunk.token_count,
+                mime_type=mime,
+                vector_score=round(sim, 4),
+                vector_rank=rank,
             )
+        if lex_rows:
+            max_rank = max(r for _, _, _, r, _ in lex_rows) or 1.0
+            for rank, (chunk, name, mime, lex, headline) in enumerate(lex_rows, start=1):
+                norm = round(lex / max_rank, 4)
+                item = by_id.get(chunk.id)
+                if item is None:
+                    item = RetrievedChunk(
+                        chunk_id=chunk.id,
+                        document_id=chunk.document_id,
+                        document_name=name,
+                        text=chunk.text,
+                        score=0.0,
+                        page_start=chunk.page_start,
+                        page_end=chunk.page_end,
+                        section_title=chunk.section_title,
+                        position=chunk.position,
+                        token_count=chunk.token_count,
+                        mime_type=mime,
+                    )
+                    by_id[chunk.id] = item
+                item.lexical_score = norm
+                item.lexical_rank = rank
+                item.highlight = headline
+
+        if mode == "hybrid":
+            fused = reciprocal_rank_fusion(
+                {
+                    "vector": [c.id for c, *_ in vec_rows],
+                    "lexical": [c.id for c, *_ in lex_rows],
+                },
+                k=rrf_k,
+            )
+            ordered: list[RetrievedChunk] = []
+            for item in fused[:top_k]:
+                chunk = by_id[item.key]
+                chunk.score = round(item.score, 6)
+                ordered.append(chunk)
+        else:
+            ordered = sorted(by_id.values(), key=lambda c: -c.score)[:top_k]
 
         log.info(
             "retrieval_done",
             workspace_id=str(scope.workspace_id),
+            mode=mode,
             documents=len(doc_ids),
-            results=len(chunks),
+            vector_candidates=len(vec_rows),
+            lexical_candidates=len(lex_rows),
+            results=len(ordered),
             top_k=top_k,
             search_ms=search_ms,
             embedding_ms=emb.latency_ms,
         )
         return RetrievalResult(
             query=query,
-            chunks=chunks,
+            chunks=ordered,
             embedding_model=emb.model,
             embedding_tokens=emb.prompt_tokens,
             embedding_latency_ms=emb.latency_ms,
@@ -235,4 +340,8 @@ class RetrievalService:
             top_k=top_k,
             min_similarity=min_similarity,
             scoped_document_ids=doc_ids,
+            mode=mode,
+            vector_candidates=len(vec_rows),
+            lexical_candidates=len(lex_rows),
+            rrf_k=rrf_k,
         )
