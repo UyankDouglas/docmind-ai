@@ -4,7 +4,7 @@
 
 **Inteligência documental com RAG: transforme PDFs em uma base de conhecimento consultável, com respostas fundamentadas e fontes verificáveis (documento + página).**
 
-[![CI](https://github.com/OWNER/docmind-ai/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
+[![CI](https://github.com/UyankDouglas/docmind-ai/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.13-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.12x-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
