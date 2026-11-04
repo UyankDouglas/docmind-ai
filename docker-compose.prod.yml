@@ -27,14 +27,14 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # minio/minio saiu do Docker Hub; bitnamilegacy/minio é uma build MinIO (2025-05) congelada, adequada para dev.
+    image: bitnamilegacy/minio:latest
     restart: unless-stopped
-    command: server /data
     env_file: .env
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 10

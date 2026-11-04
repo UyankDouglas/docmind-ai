@@ -119,6 +119,7 @@ docker compose up --build
 - MinIO console: http://localhost:9001
 
 Documentos fictícios para teste: `samples/` (ver [samples/README.md](samples/README.md)).
+Smoke test de ponta a ponta contra a instância: `cd backend && uv run python ../scripts/smoke_test.py`.
 
 ### Sem Docker (desenvolvimento)
 
@@ -185,7 +186,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 
 | Fase | Escopo | Status |
 |---|---|---|
-| 1 | Fundação e RAG funcional (PDF → chat com citações) | ✅ concluída (validação com stack Docker completa pendente nesta máquina) |
+| 1 | Fundação e RAG funcional (PDF → chat com citações) | ✅ concluída e validada com a stack Docker completa |
 | 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ⏳ |
 | 3 | Busca híbrida, streaming, configurações de recuperação | ⏳ |
 | 4 | Resumos hierárquicos, comparação entre documentos, exportação | ⏳ |

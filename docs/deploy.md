@@ -11,6 +11,14 @@ Serviços: `postgres` (pgvector), `redis`, `minio` (console em http://localhost:
 (http://localhost:8000, docs em `/api/docs`), `worker` (Celery) e `web` (http://localhost:5173).
 A API aplica `alembic upgrade head` ao iniciar. Todos os serviços possuem healthchecks.
 
+> **Imagem do MinIO**: `minio/minio` deixou de ser distribuída publicamente (Docker Hub e quay.io negam o pull).
+> O Compose usa `bitnamilegacy/minio` (build MinIO 2025-05, congelada), suficiente para desenvolvimento.
+> Para produção, avalie um servidor S3 mantido (ex.: `rustfs/rustfs`) ou um serviço S3 gerenciado; a aplicação
+> só depende da API S3 via SDK `minio`.
+
+> **Windows**: após abrir o Docker Desktop, o daemon pode levar vários minutos até responder; `docker info`
+> retorna "unable to start" nesse intervalo. Aguarde antes de concluir que há um problema.
+
 ## Desenvolvimento sem Docker (alternativa)
 
 Quando o Docker não está disponível, é possível rodar tudo localmente:

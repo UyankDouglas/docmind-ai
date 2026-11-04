@@ -5,10 +5,10 @@
 
 ## Fase atual
 
-**Fase 1 — Fundação e RAG funcional: implementada e validada localmente** (04/11/2026).
-Pendência de validação: subir a stack completa com Docker Compose (Redis, MinIO, worker Celery em
-processo separado) — o Docker Desktop não inicia na máquina de desenvolvimento (sem WSL). A
-validação foi feita com PGlite+pgvector, armazenamento em disco e Celery em modo eager.
+**Fase 1 — Fundação e RAG funcional: concluída e validada com a stack Docker completa** (04/11/2026).
+Validações: suíte pytest contra PGlite e contra o PostgreSQL+pgvector do Compose; smoke test de ponta a
+ponta (`scripts/smoke_test.py`) contra a API em contêiner com Redis, MinIO e worker Celery separado;
+interface servida pelo contêiner `web`. Pendente apenas a execução com `OPENAI_API_KEY` real.
 
 ## Funcionalidades concluídas (Fase 1)
 
@@ -35,14 +35,18 @@ validação foi feita com PGlite+pgvector, armazenamento em disco e Celery em mo
 | Migrations | `alembic upgrade head` + `alembic check` | OK, sem drift |
 | Frontend | `pnpm typecheck && pnpm lint && pnpm test && pnpm build` | 0 erros TS, 0 erros ESLint (9 warnings `react-refresh`), **28 passed**, build OK |
 | Fluxo manual no navegador (API local + provedores fake) | cadastro → login → upload pela UI → status "Pronto" (5 pág.) → visualizador → pergunta → resposta com `[1]` → clique na fonte abre o PDF na página com o trecho destacado | OK |
+| Stack Docker Compose completa (`docker compose up --build`) | 6 serviços saudáveis; `scripts/smoke_test.py` → upload → `ready` em 1,5 s via worker separado + Redis + MinIO → resposta com citação → abstenção → download | OK |
+| Pytest contra o PostgreSQL do Compose (`docmind_test`) | **53 passed** | OK |
 | Fluxo via API após reprocessamento (chunking por página) | reprocess → 3 trechos (v2) → pergunta sobre cancelamento → citação em **páginas 3–4** (a página 3 tem < 200 tokens e foi agrupada à 4); pergunta fora do domínio → `no_evidence` sem citações | OK |
 
-Não executado: Playwright E2E (planejado para a Fase 6), suíte com provedor OpenAI real (sem chave
-configurada neste ambiente), stack Docker completa.
+Não executado: Playwright E2E (planejado para a Fase 6) e suíte com provedor OpenAI real (sem chave
+configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e `LLM_PROVIDER=fake`).
 
 ## Falhas conhecidas / dívidas
 
-- `taskkill` global bloqueado no ambiente; scripts devem matar processos por PID.
+- `minio/minio` saiu do Docker Hub/quay.io; o Compose usa `bitnamilegacy/minio` (build 2025-05 congelada). Avaliar RustFS ou S3 gerenciado para produção.
+- Docker Desktop no Windows pode levar vários minutos para o daemon responder após abrir.
+- No Windows, `curl http://localhost:5173` pode falhar (resolve ::1); navegadores fazem fallback para 127.0.0.1.
 - `react-refresh/only-export-components` gera 9 warnings (componentes que exportam helpers); aceitável, não desabilitado.
 - O provedor `fake` responde ecoando o primeiro trecho; serve para a mecânica, não para qualidade.
 - Em documentos muito curtos, páginas com < 200 tokens são agrupadas (citação pode cobrir 2 páginas).
@@ -56,10 +60,9 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 ## Próximos passos
 
-1. Validar `docker compose up --build` em uma máquina com Docker funcional (ou após instalar WSL):
-   fluxo completo com worker separado, Redis e MinIO.
-2. Rodar o fluxo com `OPENAI_API_KEY` real e registrar o resultado (pergunta → resposta → página).
-3. Iniciar a **Fase 2**: DOCX/TXT (`rag/extraction/docx.py`, `txt.py`), coleções e tags, upload múltiplo
+1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
+   `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
+2. Iniciar a **Fase 2**: DOCX/TXT (`rag/extraction/docx.py`, `txt.py`), coleções e tags, upload múltiplo
    com fila visível, filtros, versionamento explícito (`DocumentVersion`), exclusão controlada e
    tratamento de falhas parciais.
-4. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).
+3. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).

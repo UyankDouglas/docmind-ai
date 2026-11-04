@@ -36,3 +36,6 @@ Thumbs.db
 
 # Build artefacts
 *.tsbuildinfo
+
+# pnpm store criado por containers
+.pnpm-store/
