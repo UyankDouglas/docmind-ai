@@ -5,9 +5,36 @@
 
 ## Fase atual
 
-**Fase 2 — Biblioteca Documental: concluída e validada com a stack Docker completa** (04/11/2026).
-Fase 1 concluída anteriormente no mesmo dia. Pendente apenas a execução com `OPENAI_API_KEY` real
+**Fase 3 — Busca avançada e Chat: concluída e validada com a stack Docker completa** (04/11/2026).
+Fases 1 e 2 concluídas anteriormente no mesmo dia. Pendente apenas a execução com `OPENAI_API_KEY` real
 (o `.env` local usa provedores `fake`).
+
+## Funcionalidades concluídas (Fase 3)
+
+- [x] **Busca híbrida**: coluna `tsvector` gerada (português) + índice GIN em `document_chunks`; candidatos léxicos
+  com `websearch_to_tsquery`/`ts_rank_cd`/`ts_headline`; fusão **Reciprocal Rank Fusion** com `vector_score`,
+  `lexical_score`, posições e `highlight` por resultado. Modo `vector` ou `hybrid` (padrão).
+- [x] **Configurações de recuperação por workspace** (`GET/PATCH /workspaces/current/settings`, só admin, limites
+  validados): modo, `top_k`, limiar, tokens de contexto, `rrf_k`, e toggle de IA externa. Aplicadas em pesquisa e chat.
+- [x] **Streaming SSE** (`POST /conversations/{id}/messages/stream`): `user_message` → `context` (trechos citáveis)
+  → `delta` (rascunho) → `done` (mensagem persistida **após** validação de citações). UI com botão Parar e fallback
+  síncrono. Pipeline de pergunta refatorado como gerador de eventos compartilhado pelos dois endpoints.
+- [x] **Evidências por resposta** (`GET /messages/{id}/retrieval` + painel "Como esta resposta foi gerada"):
+  candidatos com scores, quais entraram no contexto e quais foram citados, tokens, latências e uso.
+- [x] **Histórico avançado**: busca de conversas por título, agrupamento por data, renomear/excluir; histórico de
+  pesquisas por usuário (`GET/DELETE /search/history`); resumo de feedback em `/usage`.
+- [x] Pesquisa com seletor de modo, detalhe dos scores, destaque `<mark>` sanitizado e contadores de candidatos.
+- [x] Migração `e788f9f8bb8f`; provedores com `stream()` (OpenAI `stream=True` com uso; fake por palavras).
+
+## Testes executados (Fase 3, 04/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **83 passed** (14 novos: RRF e validação de configurações; busca híbrida com sinais léxico+vetorial, termos exatos e escopo; histórico por usuário; configurações admin/não-admin e aplicação na busca; toggle de IA externa; SSE com `context` → `delta` → `done` validado, sem evidência, CSRF; evidências; busca de conversas e feedback) |
+| Ruff + `alembic upgrade head` + `alembic check` | OK, sem drift |
+| Frontend `typecheck`, `lint`, `test`, `build` | 0 erros TS, 0 erros ESLint (20 warnings `react-refresh`), **69 passed**, build OK |
+| `scripts/smoke_test.py` contra a stack Docker | OK |
+| Fluxo manual no navegador (stack Docker) | pesquisa híbrida "VPN corporativa" com scores vetorial/léxico, destaque e histórico → pergunta no chat via SSE (API registrou `/messages/stream`) → resposta com fonte "Seções 3–4" → painel de evidências com candidato citado [1], parâmetros, latência e uso |
 
 ## Funcionalidades concluídas (Fase 2)
 
@@ -80,6 +107,8 @@ configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e
   um intervalo ("Páginas 3–4", "Seções 1–3").
 - O visualizador de DOCX/TXT mostra o texto extraído, não o arquivo renderizado (formatação original não é reproduzida).
 - Vite em contêiner usa polling de arquivos (`VITE_USE_POLLING`); HMR via WebSocket só funciona acessando por `localhost`.
+- Sem reranker neural: a relevância híbrida depende do RRF; parâmetros só devem mudar com a avaliação da Fase 6.
+- O streaming do provedor OpenAI (`create(stream=True)`) ainda não foi exercitado com chave real.
 - E-mails com domínios reservados (ex.: `.local`) são rejeitados pelo validador; a mensagem agora é traduzida.
 
 ## Decisões de arquitetura
@@ -92,7 +121,7 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
    `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
-2. Iniciar a **Fase 3** (Busca avançada e chat): pesquisa híbrida (pgvector + Full-Text Search sobre
-   `document_pages`/`document_chunks`, fusão RRF), histórico avançado, feedback agregado, streaming de respostas
-   (somente após garantir a associação das fontes), configurações de recuperação por workspace.
+2. Iniciar a **Fase 4** (Inteligência documental): resumos (geral, executivo, tópicos, obrigações e prazos, FAQ,
+   pontos de atenção) em segundo plano com estratégia hierárquica para documentos longos, comparação entre
+   documentos com evidências, extração de tópicos, perguntas sugeridas e exportação de resultados.
 3. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).

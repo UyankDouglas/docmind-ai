@@ -48,7 +48,7 @@ Resposta: "O contrato pode ser rescindido mediante aviso prévio de 45 dias [1]�
 Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o PDF na página, com o trecho
 ```
 
-## Funcionalidades (Fases 1 e 2)
+## Funcionalidades (Fases 1 a 3)
 
 - Cadastro, login, logout; workspace pessoal criado automaticamente; papéis admin/editor/viewer.
 - Biblioteca de documentos: upload de **PDF, DOCX e TXT** (drag-and-drop, fila com múltiplos envios), status real de
@@ -57,13 +57,17 @@ Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o
   histórico de versões de indexação.
 - Pipeline próprio: extração por página (pypdf), normalização, chunking com tiktoken, embeddings,
   indexação no pgvector — executado por workers Celery.
-- Chat com Documentos: conversas persistentes, seleção de documentos, respostas com marcadores `[n]`,
-  bloco de fontes, feedback 👍/👎, estados honestos (`sem evidência`, `IA indisponível`).
+- Chat com Documentos: conversas persistentes, escopo por documentos e coleções, **streaming** com fontes
+  conhecidas antes do primeiro token e texto final validado, respostas com marcadores `[n]`, bloco de fontes,
+  feedback 👍/👎, estados honestos (`sem evidência`, `IA indisponível`), painel **"Como esta resposta foi gerada"**
+  (candidatos, scores, contexto, citações, latência e tokens), busca e organização do histórico.
 - Visualizador PDF.js lado a lado com o chat: ao clicar na fonte abre a página certa e destaca o
   trecho quando ele é localizado com exatidão (caso contrário mostra o trecho no painel). Para DOCX/TXT, um
   visualizador de texto por **seções** (sem páginas inventadas) com destaque do trecho citado.
-- Pesquisa semântica independente do chat (lista de trechos com score, documento e página).
-- Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, tema claro/escuro.
+- Pesquisa **híbrida** (pgvector + Full-Text Search do PostgreSQL com fusão RRF) independente do chat, com scores
+  vetorial e léxico por resultado, destaque dos termos e histórico de pesquisas.
+- Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, **parâmetros de
+  recuperação por workspace** (modo, top_k, limiar, contexto) editáveis por administradores, tema claro/escuro.
 - Controle de uso: limites de perguntas/uploads por hora, tamanho e páginas por arquivo, tokens de contexto e saída.
 
 ## Arquitetura
@@ -89,8 +93,8 @@ Detalhes em [docs/architecture.md](docs/architecture.md). Decisões em [docs/dec
 PDF → validação → MinIO → extração por página → normalização → chunking (700/900 tokens, overlap 100,
 quebra por página) → embeddings → pgvector → pronto
 
-pergunta → autenticação/escopo → embedding → busca cosseno filtrada por workspace/documentos/modelo →
-contexto delimitado (≤ 6000 tokens) → LLM → validação estrutural das citações → resposta + fontes
+pergunta → autenticação/escopo → embedding → busca vetorial (cosseno) + busca textual (tsvector) → fusão RRF →
+contexto delimitado (≤ 6000 tokens) → LLM (streaming opcional) → validação estrutural das citações → resposta + fontes
 ```
 
 Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pipeline.md](docs/rag-pipeline.md).
@@ -104,7 +108,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (69 testes), Vitest + Testing Library (45 testes), Playwright (Fase 6) |
+| Testes | Pytest (83 testes), Vitest + Testing Library (69 testes), Playwright (Fase 6) |
 
 ## Como executar
 
@@ -176,7 +180,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 
 - PDF precisa ter camada de texto (OCR avaliado na Fase 5); DOCX/TXT são exibidos como texto extraído, sem a formatação original.
 - Chunks de ~700 tokens: em documentos curtos a citação pode cobrir um intervalo de páginas.
-- Busca apenas vetorial (híbrida com Full-Text Search na Fase 3); sem streaming de respostas.
+- Sem reranker neural: a relevância híbrida usa RRF determinístico; parâmetros serão ajustados com a avaliação da Fase 6.
 - O provedor `fake` serve para testar a mecânica; a qualidade das respostas depende de um LLM real.
 - Validação de citações é estrutural; sustentação factual será medida na Fase 6.
 
@@ -190,7 +194,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 |---|---|---|
 | 1 | Fundação e RAG funcional (PDF → chat com citações) | ✅ concluída e validada com a stack Docker completa |
 | 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ✅ concluída e validada com a stack Docker |
-| 3 | Busca híbrida, streaming, configurações de recuperação | ⏳ |
+| 3 | Busca híbrida, streaming, configurações de recuperação | ✅ concluída e validada com a stack Docker |
 | 4 | Resumos hierárquicos, comparação entre documentos, exportação | ⏳ |
 | 5 | Administração, limites de custo, auditoria, retenção, OCR | ⏳ |
 | 6 | Avaliação RAG, E2E, benchmark, revisão de segurança, demo pública | ⏳ |
