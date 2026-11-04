@@ -1,4 +1,4 @@
-// Tipos espelhando docs/api-contract.md
+// Tipos espelhando docs/api-contract.md (Fase 1 + adições da Fase 2)
 
 export type Role = "admin" | "editor" | "viewer";
 
@@ -54,6 +54,14 @@ export function isProcessingStatus(status: DocumentStatus): boolean {
   return PROCESSING_STATUSES.includes(status);
 }
 
+/** PDF = page; DOCX/TXT = section (sem paginação real) */
+export type LocationType = "page" | "section";
+
+export const MIME_PDF = "application/pdf";
+export const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const MIME_TXT = "text/plain";
+export type SupportedMime = typeof MIME_PDF | typeof MIME_DOCX | typeof MIME_TXT;
+
 export interface DocumentOwner {
   id: string;
   name: string;
@@ -76,6 +84,54 @@ export interface DocumentItem {
   processed_at: string | null;
   indexing_version: number;
   owner: DocumentOwner;
+  // Fase 2
+  location_type: LocationType;
+  tags: string[];
+  collection_id: string | null;
+  collection_name: string | null;
+  has_text_layer: boolean;
+  warnings: string[];
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  document_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentVersion {
+  id: string;
+  version: number;
+  status: DocumentStatus;
+  chunk_count: number;
+  page_count: number | null;
+  chunking_version: string;
+  embedding_model: string | null;
+  created_at: string;
+  processed_at: string | null;
+  error_message: string | null;
+}
+
+export interface TextSection {
+  index: number;
+  label: string;
+  text: string;
+  chunk_ids: string[];
+}
+
+export interface DocumentText {
+  document_id: string;
+  location_type: LocationType;
+  sections: TextSection[];
+}
+
+export interface TagCount {
+  tag: string;
+  count: number;
 }
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
@@ -111,6 +167,8 @@ export interface Chunk {
   section_title: string | null;
   text: string;
   token_count: number;
+  location_type: LocationType;
+  location_label: string;
 }
 
 export interface SearchResult {
@@ -122,6 +180,9 @@ export interface SearchResult {
   section_title: string | null;
   text: string;
   score: number;
+  location_type: LocationType;
+  location_label: string;
+  mime_type: string;
 }
 
 export interface SearchResponse {
@@ -134,13 +195,16 @@ export interface SearchResponse {
 export interface Citation {
   id: string;
   index: number;
-  chunk_id: string;
-  document_id: string;
+  chunk_id: string | null;
+  document_id: string | null;
   document_name: string;
   page_start: number | null;
   page_end: number | null;
   section_title: string | null;
   snippet: string;
+  location_type: LocationType;
+  location_label: string;
+  mime_type: string | null;
 }
 
 export type MessageStatus = "ok" | "no_evidence" | "ai_unavailable" | "error";
@@ -171,6 +235,7 @@ export interface ConversationSummary {
   updated_at: string;
   message_count: number;
   document_ids: string[];
+  collection_ids: string[];
 }
 
 export interface Conversation extends ConversationSummary {

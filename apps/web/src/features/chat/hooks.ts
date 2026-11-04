@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Conversation, ConversationSummary, Message } from "@/types/api";
-import { chatApi } from "./api";
+import { chatApi, type ConversationScopeInput, type ScopeInput } from "./api";
 
 export const chatKeys = {
   all: ["conversations"] as const,
@@ -27,7 +27,7 @@ export function useConversation(id: string | undefined) {
 export function useCreateConversation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { title?: string; document_ids?: string[] }) => chatApi.create(input),
+    mutationFn: (input: ConversationScopeInput) => chatApi.create(input),
     onSuccess: (conv) => {
       qc.setQueryData(chatKeys.detail(conv.id), conv);
       void qc.invalidateQueries({ queryKey: chatKeys.list });
@@ -38,7 +38,7 @@ export function useCreateConversation() {
 export function useUpdateConversation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, ...input }: { id: string; title?: string; document_ids?: string[] }) =>
+    mutationFn: ({ id, ...input }: { id: string } & ConversationScopeInput) =>
       chatApi.update(id, input),
     onSuccess: (conv) => {
       qc.setQueryData(chatKeys.detail(conv.id), (old: Conversation | undefined) =>
@@ -81,7 +81,7 @@ export function useSendMessage(conversationId: string) {
   const qc = useQueryClient();
   const key = chatKeys.detail(conversationId);
   return useMutation({
-    mutationFn: (input: { content: string; document_ids?: string[] }) => chatApi.send(conversationId, input),
+    mutationFn: (input: { content: string } & ScopeInput) => chatApi.send(conversationId, input),
     onMutate: async (input) => {
       await qc.cancelQueries({ queryKey: key });
       const previous = qc.getQueryData<Conversation>(key);

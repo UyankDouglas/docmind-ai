@@ -33,6 +33,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "/", element: <DashboardPage /> },
           { path: "/documents", element: <DocumentsPage /> },
+          { path: "/collections/:collectionId", element: <DocumentsPage /> },
           { path: "/documents/:id", element: <DocumentViewerPage /> },
           { path: "/chat", element: <ChatPage /> },
           { path: "/chat/:conversationId", element: <ChatPage /> },

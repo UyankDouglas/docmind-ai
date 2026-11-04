@@ -1,17 +1,22 @@
 import * as React from "react";
 import { Link } from "react-router";
-import { ExternalLink, FileText, Info, PanelRightClose, PanelRightOpen, Quote } from "lucide-react";
+import { ExternalLink, Info, PanelRightClose, PanelRightOpen, Quote, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ErrorState";
+import { documentKind, isPdf, KIND_ICONS, KIND_LABELS, locationLabel } from "@/lib/documents";
 import { cn, formatBytes, formatDateTime } from "@/lib/utils";
 import { useChunk, useDocument, useDocumentChunks } from "./hooks";
 import type { HighlightMatch } from "./pdf/highlight";
+import { VersionsPanel } from "./VersionsPanel";
 
 const PdfViewer = React.lazy(() => import("./pdf/PdfViewer").then((m) => ({ default: m.PdfViewer })));
+const TextDocumentViewer = React.lazy(() =>
+  import("./text/TextDocumentViewer").then((m) => ({ default: m.TextDocumentViewer })),
+);
 
 interface Props {
   documentId: string;
@@ -26,25 +31,30 @@ interface Props {
 }
 
 /**
- * Visualizador de documento: PDF à esquerda, painel de metadados/trechos à direita.
- * Reutilizado pela página /documents/:id e pelo painel lateral do chat.
+ * Visualizador de documento: PDF.js para PDF, texto por seções para DOCX/TXT;
+ * painel de metadados/trechos/versões à direita. Reutilizado pela página /documents/:id e pelo chat.
  */
 export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onChunkChange, embedded = false, headerExtra, className }: Props) {
   const doc = useDocument(documentId);
-  const chunks = useDocumentChunks(documentId, page);
+  const pdf = doc.data ? isPdf(doc.data.mime_type) : true;
+  const chunks = useDocumentChunks(documentId, pdf ? page : undefined);
   const activeChunk = useChunk(chunkId);
   const [panelOpen, setPanelOpen] = React.useState(!embedded);
   const [highlight, setHighlight] = React.useState<HighlightMatch | null | undefined>(undefined);
+  const [textHighlightFound, setTextHighlightFound] = React.useState<boolean | undefined>(undefined);
+  const [activeSection, setActiveSection] = React.useState<number | null>(null);
 
-  // Quando um chunk é escolhido e tem página, navega para ela
+  // PDF: quando um chunk é escolhido e tem página, navega para ela
   React.useEffect(() => {
-    if (activeChunk.data?.page_start && activeChunk.data.page_start !== page) {
+    if (pdf && activeChunk.data?.page_start && activeChunk.data.page_start !== page) {
       onPageChange(activeChunk.data.page_start);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChunk.data?.id]);
+  }, [activeChunk.data?.id, pdf]);
 
-  const highlightText = activeChunk.data && activeChunk.data.page_start === page ? activeChunk.data.text : null;
+  const highlightText = pdf && activeChunk.data && activeChunk.data.page_start === page ? activeChunk.data.text : null;
+  const kind = documentKind(doc.data?.mime_type);
+  const KindIcon = KIND_ICONS[kind];
 
   if (doc.isError) {
     return (
@@ -54,10 +64,14 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
     );
   }
 
+  const pdfFallbackNote = highlightText && highlight === null;
+  const pdfPartialNote = highlightText && highlight?.partial;
+  const textFallbackNote = !pdf && chunkId && textHighlightFound === false;
+
   return (
     <div className={cn("flex h-full min-h-0 flex-col", className)}>
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-card px-3">
-        <FileText className="size-4 shrink-0 text-primary" aria-hidden />
+        <KindIcon className="size-4 shrink-0 text-primary" aria-hidden />
         {doc.isPending ? (
           <Skeleton className="h-4 w-48" />
         ) : (
@@ -65,10 +79,11 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
             {doc.data.name}
           </h2>
         )}
+        {doc.data ? <Badge variant="muted" className="hidden sm:inline-flex">{KIND_LABELS[kind]}</Badge> : null}
         {doc.data ? <StatusBadge status={doc.data.status} className="hidden sm:inline-flex" /> : null}
         {embedded ? (
           <Button variant="ghost" size="icon-sm" asChild aria-label="Abrir em página própria">
-            <Link to={`/documents/${documentId}?page=${page}${chunkId ? `&chunk=${chunkId}` : ""}`}>
+            <Link to={`/documents/${documentId}?${pdf ? `page=${page}` : ""}${chunkId ? `&chunk=${chunkId}` : ""}`}>
               <ExternalLink />
             </Link>
           </Button>
@@ -87,27 +102,29 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
-          {doc.data && doc.data.mime_type !== "application/pdf" ? (
-            <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-              Visualização disponível apenas para PDF nesta fase.
-            </div>
-          ) : (
-            <React.Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
-                  Carregando visualizador…
-                </div>
-              }
-            >
-              <PdfViewer
+          <React.Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground" role="status">
+                Carregando visualizador…
+              </div>
+            }
+          >
+            {doc.isPending ? null : pdf ? (
+              <PdfViewer documentId={documentId} page={page} onPageChange={onPageChange} highlightText={highlightText} onHighlightResult={setHighlight} />
+            ) : (
+              <TextDocumentViewer
                 documentId={documentId}
-                page={page}
-                onPageChange={onPageChange}
-                highlightText={highlightText}
-                onHighlightResult={setHighlight}
+                chunkId={chunkId}
+                chunkText={activeChunk.data?.text ?? null}
+                onHighlightResult={setTextHighlightFound}
+                activeSection={activeSection}
+                onSectionChange={(i) => {
+                  setActiveSection(i);
+                  onChunkChange?.(null);
+                }}
               />
-            </React.Suspense>
-          )}
+            )}
+          </React.Suspense>
         </div>
 
         {panelOpen ? (
@@ -122,24 +139,36 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
                     </button>
                   ) : null}
                 </div>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {activeChunk.data.page_start ? `Página ${activeChunk.data.page_start}` : "Posição textual"}
-                  {activeChunk.data.section_title ? ` · ${activeChunk.data.section_title}` : ""}
+                <p className="mb-2 text-xs text-muted-foreground" data-testid="active-chunk-location">
+                  {locationLabel(activeChunk.data)}
                 </p>
                 <blockquote className="max-h-64 overflow-y-auto rounded-lg border-l-2 border-primary bg-primary/5 p-3 text-sm leading-relaxed whitespace-pre-wrap">
                   {activeChunk.data.text}
                 </blockquote>
-                {highlightText && highlight === null ? (
+                {pdfFallbackNote || textFallbackNote ? (
                   <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground" data-testid="highlight-fallback">
                     <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-                    Trecho exibido no painel (não foi possível localizar a posição exata na página).
+                    Trecho exibido no painel (não foi possível localizar a posição exata {pdf ? "na página" : "na seção"}).
                   </p>
-                ) : highlightText && highlight?.partial ? (
+                ) : pdfPartialNote ? (
                   <p className="mt-2 flex items-start gap-1.5 text-xs text-muted-foreground">
                     <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                     Apenas parte do trecho foi localizada na página; o restante está neste painel.
                   </p>
                 ) : null}
+              </section>
+            ) : null}
+
+            {doc.data?.warnings?.length ? (
+              <section className="border-b border-border p-4" aria-label="Avisos da extração">
+                <h3 className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-warning">
+                  <AlertTriangle className="size-3.5" aria-hidden /> Avisos
+                </h3>
+                <ul className="list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+                  {doc.data.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
               </section>
             ) : null}
 
@@ -154,14 +183,22 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
                 <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
                   <dt className="text-muted-foreground">Arquivo</dt>
                   <dd className="truncate" title={doc.data.original_name}>{doc.data.original_name}</dd>
+                  <dt className="text-muted-foreground">Tipo</dt>
+                  <dd>{KIND_LABELS[kind]}</dd>
                   <dt className="text-muted-foreground">Tamanho</dt>
                   <dd>{formatBytes(doc.data.size_bytes)}</dd>
-                  <dt className="text-muted-foreground">Páginas</dt>
+                  <dt className="text-muted-foreground">{doc.data.location_type === "page" ? "Páginas" : "Seções"}</dt>
                   <dd>{doc.data.page_count ?? "—"}</dd>
                   <dt className="text-muted-foreground">Trechos</dt>
                   <dd>{doc.data.chunk_count}</dd>
                   <dt className="text-muted-foreground">Caracteres</dt>
                   <dd>{doc.data.char_count?.toLocaleString("pt-BR") ?? "—"}</dd>
+                  <dt className="text-muted-foreground">Coleção</dt>
+                  <dd className="truncate">
+                    {doc.data.collection_id ? <Link to={`/collections/${doc.data.collection_id}`} className="hover:underline">{doc.data.collection_name}</Link> : "—"}
+                  </dd>
+                  <dt className="text-muted-foreground">Tags</dt>
+                  <dd className="flex flex-wrap gap-1">{doc.data.tags?.length ? doc.data.tags.map((t) => <Badge key={t} variant="muted" className="px-1.5 py-0 text-[10px]">#{t}</Badge>) : "—"}</dd>
                   <dt className="text-muted-foreground">Enviado</dt>
                   <dd>{formatDateTime(doc.data.created_at)}</dd>
                   <dt className="text-muted-foreground">Processado</dt>
@@ -174,9 +211,9 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
               )}
             </section>
 
-            <section className="p-4">
+            <section className="border-b border-border p-4">
               <h3 className="mb-3 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Trechos da página {page}
+                {pdf ? `Trechos da página ${page}` : "Trechos"}
                 {chunks.data ? <Badge variant="muted">{chunks.data.length}</Badge> : null}
               </h3>
               {chunks.isPending ? (
@@ -188,7 +225,7 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
                 <p className="text-xs text-muted-foreground">Não foi possível carregar os trechos.</p>
               ) : chunks.data.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  Nenhum trecho indexado nesta página{doc.data?.status !== "ready" ? " (documento ainda não está pronto)" : ""}.
+                  Nenhum trecho indexado{pdf ? " nesta página" : ""}{doc.data?.status !== "ready" ? " (documento ainda não está pronto)" : ""}.
                 </p>
               ) : (
                 <ul className="space-y-2">
@@ -204,8 +241,7 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
                         aria-pressed={c.id === chunkId}
                       >
                         <span className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                          Trecho #{c.position + 1}
-                          {c.section_title ? ` · ${c.section_title}` : ""}
+                          Trecho #{c.position + 1} · {locationLabel(c)}
                         </span>
                         <span className="line-clamp-4">{c.text}</span>
                       </button>
@@ -214,6 +250,7 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
                 </ul>
               )}
             </section>
+            <VersionsPanel documentId={documentId} currentVersion={doc.data?.indexing_version} />
             <Separator />
           </aside>
         ) : null}

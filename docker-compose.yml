@@ -123,6 +123,7 @@ services:
     environment:
       VITE_API_URL: /api/v1
       VITE_PROXY_TARGET: http://api:8000
+      VITE_USE_POLLING: "true"
     # O volume nomeado isola o node_modules do host (Windows/macOS); se vier vazio ou inválido,
     # as dependências são instaladas dentro do contêiner antes de iniciar o Vite.
     command: >

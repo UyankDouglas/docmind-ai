@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowRight, CheckCircle2, FileText, Loader2, MessageSquareText, Search, Upload } from "lucide-react";
+import { ArrowRight, CheckCircle2, FileText, Folders, Loader2, MessageSquareText, Search, Upload } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,9 @@ import { EmptyState } from "@/components/EmptyState";
 import { AiStatusCard } from "@/features/settings/AiStatusCard";
 import { useDocuments } from "@/features/documents/hooks";
 import { useConversations } from "@/features/chat/hooks";
+import { useCollections } from "@/features/collections/hooks";
+import { CollectionColorDot } from "@/features/collections/CollectionsPanel";
+import { documentKind, KIND_LABELS, type DocumentKind } from "@/lib/documents";
 import { useMe } from "@/features/auth/hooks";
 import { isProcessingStatus } from "@/types/api";
 import { formatRelative } from "@/lib/utils";
@@ -33,11 +36,20 @@ export function DashboardPage() {
   const { data: user } = useMe();
   const docs = useDocuments({ page: 1, page_size: 100 });
   const convs = useConversations();
+  const collections = useCollections();
 
   const items = docs.data?.items ?? [];
   const ready = items.filter((d) => d.status === "ready").length;
   const processing = items.filter((d) => isProcessingStatus(d.status)).length;
   const recent = items.slice(0, 5);
+  const byKind = items.reduce<Record<DocumentKind, number>>(
+    (acc, d) => {
+      acc[documentKind(d.mime_type)] += 1;
+      return acc;
+    },
+    { pdf: 0, docx: 0, txt: 0, other: 0 },
+  );
+  const recentCollections = (collections.data ?? []).slice(0, 5);
 
   return (
     <div>
@@ -48,7 +60,7 @@ export function DashboardPage() {
           <>
             <Button variant="outline" asChild>
               <Link to="/documents">
-                <Upload /> Enviar PDF
+                <Upload /> Enviar documento
               </Link>
             </Button>
             <Button variant="gradient" asChild>
@@ -75,6 +87,16 @@ export function DashboardPage() {
         </div>
       )}
 
+      {!docs.isPending && items.length > 0 ? (
+        <div className="mt-4 flex flex-wrap gap-2" aria-label="Documentos por tipo">
+          {(["pdf", "docx", "txt"] as const).map((k) => (
+            <span key={k} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-xs">
+              <span className="font-semibold">{byKind[k]}</span> {KIND_LABELS[k]}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between space-y-0">
@@ -93,7 +115,7 @@ export function DashboardPage() {
               <EmptyState
                 icon={FileText}
                 title="Nenhum documento"
-                description="Envie um PDF para começar."
+                description="Envie um PDF, DOCX ou TXT para começar."
                 className="py-8"
                 action={
                   <Button asChild size="sm">
@@ -118,6 +140,37 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
+        <div className="space-y-6">
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Coleções</CardTitle>
+              <CardDescription>Agrupe documentos e use como escopo no chat.</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/documents">
+                <Folders /> Gerenciar
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {collections.isPending ? null : recentCollections.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma coleção ainda.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {recentCollections.map((c) => (
+                  <li key={c.id} className="flex items-center gap-2 py-2 text-sm">
+                    <CollectionColorDot color={c.color} />
+                    <Link to={`/collections/${c.id}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
+                      {c.name}
+                    </Link>
+                    <span className="text-xs text-muted-foreground">{c.document_count} doc.</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle>Ações rápidas</CardTitle>
@@ -125,7 +178,7 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {[
-              { to: "/documents", icon: Upload, label: "Enviar e indexar um PDF" },
+              { to: "/documents", icon: Upload, label: "Enviar e indexar um documento" },
               { to: "/chat", icon: MessageSquareText, label: "Perguntar aos documentos" },
               { to: "/search", icon: Search, label: "Pesquisar trechos por significado" },
             ].map((a) => (
@@ -143,6 +196,7 @@ export function DashboardPage() {
             ))}
           </CardContent>
         </Card>
+        </div>
       </div>
     </div>
   );

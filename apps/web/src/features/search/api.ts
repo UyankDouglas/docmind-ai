@@ -4,6 +4,7 @@ import type { SearchResponse } from "@/types/api";
 export interface SearchInput {
   query: string;
   document_ids?: string[];
+  collection_ids?: string[];
   top_k?: number;
 }
 

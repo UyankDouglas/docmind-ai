@@ -6,7 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
 import { useMe } from "@/features/auth/hooks";
 import { useAiStatus } from "@/features/settings/hooks";
-import { DocumentPicker } from "@/features/documents/DocumentPicker";
+import { EMPTY_SCOPE, ScopePicker, type Scope } from "@/features/documents/ScopePicker";
 import { DocumentWorkspace } from "@/features/documents/DocumentWorkspace";
 import { ChatComposer } from "@/features/chat/ChatComposer";
 import { ChatThread } from "@/features/chat/ChatThread";
@@ -21,6 +21,7 @@ import {
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { errorMessage } from "@/services/api";
 import type { Citation } from "@/types/api";
+import { isPdf, viewerHref } from "@/lib/documents";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
@@ -37,6 +38,10 @@ interface ViewerState {
   citationId: string | null;
 }
 
+function conversationScope(c: { document_ids: string[]; collection_ids?: string[] } | undefined): Scope {
+  return { document_ids: c?.document_ids ?? [], collection_ids: c?.collection_ids ?? [] };
+}
+
 export function ChatPage() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
@@ -47,7 +52,7 @@ export function ChatPage() {
 
   const [listOpen, setListOpen] = React.useState(true);
   const [viewer, setViewer] = React.useState<ViewerState | null>(null);
-  const [pendingDocs, setPendingDocs] = React.useState<string[]>([]);
+  const [pendingScope, setPendingScope] = React.useState<Scope>(EMPTY_SCOPE);
 
   const conversation = useConversation(conversationId);
   const create = useCreateConversation();
@@ -55,19 +60,23 @@ export function ChatPage() {
   const send = useSendMessage(conversationId ?? "");
   const feedback = useSendFeedback(conversationId ?? "");
 
-  const selectedDocs = conversationId ? (conversation.data?.document_ids ?? []) : pendingDocs;
+  const scope: Scope = conversationId ? conversationScope(conversation.data) : pendingScope;
+  const scopeEmpty = scope.document_ids.length === 0 && scope.collection_ids.length === 0;
 
-  const setSelectedDocs = (ids: string[]) => {
+  const setScope = (next: Scope) => {
     if (!conversationId) {
-      setPendingDocs(ids);
+      setPendingScope(next);
       return;
     }
-    update.mutate({ id: conversationId, document_ids: ids });
+    update.mutate({ id: conversationId, document_ids: next.document_ids, collection_ids: next.collection_ids });
   };
 
   const startConversation = async (firstMessage?: string) => {
     try {
-      const conv = await create.mutateAsync({ document_ids: pendingDocs });
+      const conv = await create.mutateAsync({
+        document_ids: pendingScope.document_ids,
+        collection_ids: pendingScope.collection_ids,
+      });
       navigate(`/chat/${conv.id}`, { state: firstMessage ? { firstMessage } : undefined });
     } catch (e) {
       toast({ kind: "error", title: "Não foi possível criar a conversa", description: errorMessage(e) });
@@ -100,9 +109,22 @@ export function ChatPage() {
   }, [conversationId, conversation.data]);
 
   const openCitation = (c: Citation) => {
-    const target: ViewerState = { documentId: c.document_id, page: c.page_start ?? 1, chunkId: c.chunk_id, citationId: c.id };
+    if (!c.document_id) {
+      toast({ kind: "info", title: "Documento indisponível", description: "A fonte citada foi removida do workspace." });
+      return;
+    }
+    const page = c.location_type === "page" || isPdf(c.mime_type) ? (c.page_start ?? 1) : 1;
+    const target: ViewerState = { documentId: c.document_id, page, chunkId: c.chunk_id, citationId: c.id };
     if (!isDesktop) {
-      navigate(`/documents/${c.document_id}?page=${target.page}&chunk=${c.chunk_id}`);
+      navigate(
+        viewerHref({
+          document_id: c.document_id,
+          mime_type: c.mime_type,
+          location_type: c.location_type,
+          page_start: c.page_start,
+          chunk_id: c.chunk_id,
+        }),
+      );
       return;
     }
     setViewer(target);
@@ -125,7 +147,7 @@ export function ChatPage() {
           <ConversationList
             activeId={conversationId}
             onNew={() => {
-              setPendingDocs([]);
+              setPendingScope(EMPTY_SCOPE);
               navigate("/chat");
             }}
             onDeleted={(id) => {
@@ -150,7 +172,7 @@ export function ChatPage() {
           <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">
             {conversationId ? (conversation.data?.title || "Conversa") : "Nova conversa"}
           </h1>
-          <DocumentPicker value={selectedDocs} onChange={setSelectedDocs} disabled={update.isPending} className="max-w-[16rem]" />
+          <ScopePicker value={scope} onChange={setScope} disabled={update.isPending} className="max-w-[18rem]" />
         </div>
 
         {aiUnavailable ? (
@@ -196,7 +218,8 @@ export function ChatPage() {
                 created_at: "",
                 updated_at: "",
                 message_count: 0,
-                document_ids: pendingDocs,
+                document_ids: pendingScope.document_ids,
+                collection_ids: pendingScope.collection_ids,
                 messages: [],
               }}
               isPending={false}
@@ -220,11 +243,7 @@ export function ChatPage() {
                 onSend={(c) => void handleSend(c)}
                 pending={send.isPending || create.isPending}
                 disabled={conversation.isError}
-                hint={
-                  selectedDocs.length === 0
-                    ? "Sem seleção: todos os documentos prontos do workspace serão considerados"
-                    : undefined
-                }
+                hint={scopeEmpty ? "Sem seleção: todos os documentos prontos do workspace serão considerados" : undefined}
               />
             </div>
           </div>

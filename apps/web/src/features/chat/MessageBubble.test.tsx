@@ -15,6 +15,24 @@ const citation: Citation = {
   page_end: 8,
   section_title: null,
   snippet: "O prazo para cancelamento é de 30 dias…",
+  location_type: "page",
+  location_label: "Página 8",
+  mime_type: "application/pdf",
+};
+
+const sectionCitation: Citation = {
+  ...citation,
+  id: "c2",
+  index: 2,
+  chunk_id: "ch2",
+  document_id: "d2",
+  document_name: "Politica.docx",
+  page_start: 3,
+  page_end: 3,
+  section_title: "4. Afastamentos",
+  location_type: "section",
+  location_label: "Seção 3 · 4. Afastamentos",
+  mime_type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 };
 
 function msg(partial: Partial<Message>): Message {
@@ -49,6 +67,17 @@ describe("MessageBubble", () => {
     expect(source).toHaveTextContent("Contrato.pdf — Página 8");
     await userEvent.click(source);
     expect(onCitation).toHaveBeenCalledTimes(2);
+  });
+
+  it("usa o rótulo de seção (nunca 'Página') para citações de DOCX/TXT", () => {
+    renderWithProviders(
+      <MessageBubble message={msg({ content: "A política prevê afastamentos [2].", citations: [sectionCitation] })} />,
+    );
+    const chip = screen.getByTestId("citation-chip-2");
+    expect(chip).toHaveAccessibleName("Fonte 2: Politica.docx — Seção 3 · 4. Afastamentos");
+    const source = screen.getByTestId("citation-source-2");
+    expect(source).toHaveTextContent("Seção 3 · 4. Afastamentos");
+    expect(source).not.toHaveTextContent(/Página/);
   });
 
   it("não transforma em chip um marcador sem fonte correspondente", () => {

@@ -16,6 +16,9 @@ export default defineConfig({
   server: {
     host: true,
     port: 5173,
+    // Em contêineres com bind mount (Windows/macOS) os eventos de arquivo não chegam ao Vite:
+    // VITE_USE_POLLING=true ativa o watcher por polling (ver docker-compose.yml).
+    watch: process.env.VITE_USE_POLLING === "true" ? { usePolling: true, interval: 1000 } : undefined,
     proxy: {
       "/api": {
         target: proxyTarget,

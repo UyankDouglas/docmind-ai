@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { jsonResponse, mockFetch, renderWithProviders } from "@/test/utils";
 import type { DocumentItem } from "@/types/api";
 import { DocumentList } from "./DocumentList";
@@ -22,6 +23,12 @@ function doc(partial: Partial<DocumentItem>): DocumentItem {
     processed_at: new Date().toISOString(),
     indexing_version: 1,
     owner: { id: "u1", name: "Ana" },
+    location_type: "page",
+    tags: [],
+    collection_id: null,
+    collection_name: null,
+    has_text_layer: true,
+    warnings: [],
     ...partial,
   };
 }
@@ -70,5 +77,54 @@ describe("DocumentList", () => {
     expect(await within(rows[1]!).findByText("Gerando embeddings")).toBeInTheDocument();
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/documents/d2/status"))).toBe(true);
     expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/documents/d1/status"))).toBe(false);
+  });
+
+  it("envia filtros e ordenação como query params e mostra tags/coleção/avisos/versão", async () => {
+    const fetchMock = mockFetch((url) => {
+      if (url.includes("/collections")) return jsonResponse({ items: [{ id: "c1", name: "Contratos", description: null, color: "#8B5CF6", document_count: 1, created_at: "", updated_at: "" }] });
+      if (url.includes("/documents/tags")) return jsonResponse({ items: [{ tag: "juridico", count: 1 }] });
+      return jsonResponse({
+        items: [doc({ id: "d1", tags: ["juridico"], collection_id: "c1", collection_name: "Contratos", indexing_version: 2, warnings: ["2 de 5 páginas sem texto"] })],
+        total: 1,
+        page: 1,
+        page_size: 20,
+      });
+    });
+    renderWithProviders(<DocumentList canManage />);
+    const row = (await screen.findAllByTestId("document-row"))[0]!;
+    expect(within(row).getByTestId("doc-tag")).toHaveTextContent("#juridico");
+    expect(within(row).getByText("Contratos")).toBeInTheDocument();
+    expect(within(row).getByTestId("doc-warning")).toBeInTheDocument();
+    expect(within(row).getByText(/v2/)).toBeInTheDocument();
+
+    const first = fetchMock.mock.calls.find((c) => String(c[0]).includes("/documents?"));
+    expect(String(first?.[0])).toContain("sort=-created_at");
+
+    await userEvent.click(screen.getByLabelText("Filtrar por tipo"));
+    await userEvent.click(await screen.findByRole("option", { name: "DOCX" }));
+    await waitFor(() => {
+      const last = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/documents?")).at(-1);
+      expect(decodeURIComponent(String(last?.[0]))).toContain("mime_type=application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    });
+
+    await userEvent.click(screen.getByLabelText("Ordenar por"));
+    await userEvent.click(await screen.findByRole("option", { name: "Nome (A–Z)" }));
+    await waitFor(() => {
+      const last = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/documents?")).at(-1);
+      expect(String(last?.[0])).toContain("sort=name");
+    });
+  });
+
+  it("restringe à coleção da rota e oculta o filtro de coleção", async () => {
+    const fetchMock = mockFetch((url) => {
+      if (url.includes("/collections")) return jsonResponse({ items: [] });
+      if (url.includes("/documents/tags")) return jsonResponse({ items: [] });
+      return jsonResponse({ items: [], total: 0, page: 1, page_size: 20 });
+    });
+    renderWithProviders(<DocumentList canManage collectionId="c9" />);
+    expect(await screen.findByText("Esta coleção está vazia")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Filtrar por coleção")).not.toBeInTheDocument();
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes("/documents?"));
+    expect(String(call?.[0])).toContain("collection_id=c9");
   });
 });

@@ -2,6 +2,7 @@ import * as React from "react";
 import { AlertTriangle, BrainCircuit, FileText, Info, SearchX, ThumbsDown, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { locationLabel } from "@/lib/documents";
 import { cn, formatDateTime, initials } from "@/lib/utils";
 import type { Citation, Message } from "@/types/api";
 import { Markdown } from "./markdown";
@@ -16,12 +17,8 @@ export interface MessageBubbleProps {
 }
 
 export function citationLabel(c: Citation): string {
-  if (c.page_start) {
-    const pages = c.page_end && c.page_end !== c.page_start ? `Páginas ${c.page_start}–${c.page_end}` : `Página ${c.page_start}`;
-    return `${c.document_name} — ${pages}`;
-  }
-  if (c.section_title) return `${c.document_name} — ${c.section_title}`;
-  return c.document_name;
+  const where = locationLabel(c);
+  return where ? `${c.document_name} — ${where}` : c.document_name;
 }
 
 export function MessageBubble({ message, userName, onCitationClick, onFeedback, feedbackPending, activeCitationId }: MessageBubbleProps) {
