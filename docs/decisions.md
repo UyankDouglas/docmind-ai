@@ -1,0 +1,19 @@
+# Registro de decisões (ADR resumido)
+
+| # | Decisão | Alternativas | Motivo |
+|---|---|---|---|
+| 1 | SQLAlchemy 2 **síncrono** (psycopg 3) na API e no worker | Async SQLAlchemy + asyncpg | Um único modelo de sessão compartilhado com o Celery; FastAPI executa rotas síncronas em threadpool; menos complexidade para a Fase 1. |
+| 2 | Sessões no servidor + cookie HttpOnly em vez de JWT | JWT em localStorage | Revogação imediata, sem token exposto ao JS, requisito do prompt. |
+| 3 | CSRF double-submit **validado contra a sessão** | Apenas SameSite | SameSite=Lax não cobre todos os navegadores/fluxos; o token na sessão impede reuso de cookie forjado. |
+| 4 | `EmbeddingRecord` separado de `DocumentChunk` | Coluna `vector` no chunk | Permite múltiplos modelos/reindexação e torna explícitos modelo, dimensão e data de cada vetor. |
+| 5 | `workspace_id` desnormalizado em chunks e embeddings | Apenas via JOIN | O filtro de isolamento é aplicado na própria tabela de vetores, sem depender de um JOIN correto em cada consulta. |
+| 6 | Busca cosseno exata (sem HNSW) | HNSW/IVFFlat desde o início | Volume pequeno; índice ANN será avaliado com métricas na Fase 6. |
+| 7 | Chunking próprio com tiktoken | LangChain/LlamaIndex splitters | Requisito de transparência; controle sobre páginas, títulos e sobreposição. |
+| 8 | Citações `[n]` validadas estruturalmente + referências geradas pelo backend | Confiar no texto do modelo | Impede páginas/documentos inventados; o modelo só pode apontar para trechos do contexto. |
+| 9 | Provedores `fake` determinísticos para testes | Mocks ad hoc / gravações HTTP | Testes reprodutíveis sem rede ou custo; o embedding por hash de palavras preserva similaridade lexical suficiente para testar recuperação e filtros. |
+| 10 | Modelos de IA só por variáveis de ambiente | Nomes fixos no código | Modelos são descontinuados; troca sem redeploy. |
+| 11 | Soft delete em documentos e conversas; hard delete de chunks/embeddings | Hard delete total | Mantém auditoria/histórico redigido e remove conteúdo dos índices ativos imediatamente. |
+| 12 | Status de processamento persistidos por etapa | Percentual estimado | O usuário vê o estado real; sem timers simulando progresso. |
+| 13 | Frontend em Vite 7 (não 8) | Vite 8 | `@vitejs/plugin-react` e Vitest ainda não suportavam Vite 8 de forma estável na data de criação. |
+| 14 | PGlite (+pgvector) como banco **local de desenvolvimento/testes** quando o Docker não está disponível | Exigir Docker sempre | Permitiu executar migrations e a suíte de integração nesta máquina; não substitui PostgreSQL em produção (uma conexão por vez). |
+| 15 | Duplicidade por SHA-256 bloqueia upload no mesmo workspace | Permitir cópias | Evita reindexar e cobrar embeddings do mesmo conteúdo; a Fase 2 trará versionamento explícito. |
