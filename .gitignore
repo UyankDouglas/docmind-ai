@@ -1,0 +1,38 @@
+# Env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+backend/.coverage
+backend/htmlcov/
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+apps/web/coverage/
+e2e/test-results/
+e2e/playwright-report/
+
+# Data / local volumes
+data/
+*.log
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Build artefacts
+*.tsbuildinfo
