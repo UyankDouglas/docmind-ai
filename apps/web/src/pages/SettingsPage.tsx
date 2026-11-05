@@ -157,10 +157,10 @@ export function SettingsPage() {
                     <p className="text-xs text-muted-foreground">Feedback das respostas</p>
                     <div className="mt-2 flex flex-wrap items-center gap-4 text-sm">
                       <span className="inline-flex items-center gap-1 text-success">
-                        <ThumbsUp className="size-4" aria-hidden /> {usage.data.feedback.positive} útil{usage.data.feedback.positive === 1 ? "" : "s"}
+                        <ThumbsUp className="size-4" aria-hidden /> {usage.data.feedback.positive} {usage.data.feedback.positive === 1 ? "útil" : "úteis"}
                       </span>
                       <span className="inline-flex items-center gap-1 text-destructive">
-                        <ThumbsDown className="size-4" aria-hidden /> {usage.data.feedback.negative} não útil{usage.data.feedback.negative === 1 ? "" : "s"}
+                        <ThumbsDown className="size-4" aria-hidden /> {usage.data.feedback.negative} {usage.data.feedback.negative === 1 ? "não útil" : "não úteis"}
                       </span>
                       <span className="text-muted-foreground">
                         de {usage.data.feedback.total_answers} resposta{usage.data.feedback.total_answers === 1 ? "" : "s"}
