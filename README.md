@@ -48,7 +48,7 @@ Resposta: "O contrato pode ser rescindido mediante aviso prévio de 45 dias [1]�
 Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o PDF na página, com o trecho
 ```
 
-## Funcionalidades (Fases 1 a 3)
+## Funcionalidades (Fases 1 a 4)
 
 - Cadastro, login, logout; workspace pessoal criado automaticamente; papéis admin/editor/viewer.
 - Biblioteca de documentos: upload de **PDF, DOCX e TXT** (drag-and-drop, fila com múltiplos envios), status real de
@@ -66,6 +66,10 @@ Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o
   visualizador de texto por **seções** (sem páginas inventadas) com destaque do trecho citado.
 - Pesquisa **híbrida** (pgvector + Full-Text Search do PostgreSQL com fusão RRF) independente do chat, com scores
   vetorial e léxico por resultado, destaque dos termos e histórico de pesquisas.
+- **Inteligência documental**: resumos em 6 tipos com estratégia hierárquica para documentos longos, comparação
+  entre 2–5 documentos com evidências rotuladas (A, B…), extração de tópicos, perguntas sugeridas e exportação de
+  análises e conversas em Markdown/JSON. Toda análise traz fontes, cobertura (trechos lidos/total, estratégia) e
+  limitações geradas pelo backend.
 - Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, **parâmetros de
   recuperação por workspace** (modo, top_k, limiar, contexto) editáveis por administradores, tema claro/escuro.
 - Controle de uso: limites de perguntas/uploads por hora, tamanho e páginas por arquivo, tokens de contexto e saída.
@@ -108,7 +112,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (83 testes), Vitest + Testing Library (69 testes), Playwright (Fase 6) |
+| Testes | Pytest (96 testes), Vitest + Testing Library (83 testes), Playwright (Fase 6) |
 
 ## Como executar
 
@@ -195,7 +199,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 | 1 | Fundação e RAG funcional (PDF → chat com citações) | ✅ concluída e validada com a stack Docker completa |
 | 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ✅ concluída e validada com a stack Docker |
 | 3 | Busca híbrida, streaming, configurações de recuperação | ✅ concluída e validada com a stack Docker |
-| 4 | Resumos hierárquicos, comparação entre documentos, exportação | ⏳ |
+| 4 | Resumos hierárquicos, comparação entre documentos, exportação | ✅ concluída e validada com a stack Docker |
 | 5 | Administração, limites de custo, auditoria, retenção, OCR | ⏳ |
 | 6 | Avaliação RAG, E2E, benchmark, revisão de segurança, demo pública | ⏳ |
 

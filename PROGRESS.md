@@ -5,9 +5,37 @@
 
 ## Fase atual
 
-**Fase 3 — Busca avançada e Chat: concluída e validada com a stack Docker completa** (04/11/2026).
-Fases 1 e 2 concluídas anteriormente no mesmo dia. Pendente apenas a execução com `OPENAI_API_KEY` real
+**Fase 4 — Inteligência Documental: concluída e validada com a stack Docker completa** (05/11/2026).
+Fases 1 a 3 concluídas em 04/11/2026. Pendente apenas a execução com `OPENAI_API_KEY` real
 (o `.env` local usa provedores `fake`).
+
+## Funcionalidades concluídas (Fase 4)
+
+- [x] **Análises assíncronas** (`analyses` + tarefa Celery `analysis.run`): criação → `queued` → worker → `succeeded`/`failed`/`cancelled`,
+  polling na UI sem percentuais, cancelamento cooperativo, teto de tokens de entrada por análise (`analysis_too_large`).
+- [x] **Resumos** em 6 tipos (geral, executivo, principais tópicos, obrigações e prazos, FAQ, pontos de atenção); **estratégia
+  hierárquica** quando o documento excede o orçamento de contexto (partes → síntese) preservando os marcadores `[n]` globais;
+  nunca resume só o começo.
+- [x] **Comparação entre 2–5 documentos** (rótulos A–E) com pergunta orientadora: completa quando cabe no orçamento; caso
+  contrário, recuperação dos trechos mais relevantes por documento com `complete=false` e limitação explícita.
+- [x] **Tópicos** (cards com fontes) e **perguntas sugeridas** (reutilizadas por versão do documento; clique abre o chat).
+- [x] **Fontes, cobertura e limitações geradas pelo backend** em toda análise (estratégia, trechos lidos/total, tokens,
+  marcadores inválidos removidos, aviso de provedor de testes); citações validadas estruturalmente.
+- [x] **Exportação** de análises e conversas em Markdown/JSON, sempre com a lista de fontes e as limitações.
+- [x] UI: aba "Análises" no documento, página `/compare`, card de análises recentes, botão "Exportar conversa".
+- [x] Migração `b98a59388bb2`.
+
+## Testes executados (Fase 4, 05/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **96 passed** (13 novos: parsers; resumo em passagem única com fontes válidas e marcador inválido removido; resumo hierárquico com partes cobrindo todos os trechos sem repetição; documento não pronto / tipo inválido / análise grande demais; comparação completa e por recuperação; validação de quantidade e isolamento; tópicos + reutilização de perguntas + listagem; cancelar, exportar md/json e excluir; exportação de conversa; falha honesta sem provedor; prompt injection em resumo) |
+| Ruff + `alembic upgrade head` + `alembic check` | OK, sem drift |
+| Frontend `typecheck`, `lint`, `test`, `build` | 0 erros TS, 0 erros ESLint (23 warnings `react-refresh`), **83 passed**, build OK |
+| Fluxo manual no navegador (stack Docker) | aba Análises → "Gerar resumo" → worker processa (`analysis.run`) → resultado com `[1]`, fontes por seção, cobertura "2 de 2 trechos" e limitações; `/compare` com DOCX (A) × TXT (B) → comparação completa com fontes agrupadas |
+
+Correções durante a validação: o seletor de documentos prontos pedia `page_size=200` (máximo da API é 100) e a lista vinha
+vazia; plural de "útil" no resumo de feedback.
 
 ## Funcionalidades concluídas (Fase 3)
 
@@ -109,6 +137,8 @@ configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e
 - Vite em contêiner usa polling de arquivos (`VITE_USE_POLLING`); HMR via WebSocket só funciona acessando por `localhost`.
 - Sem reranker neural: a relevância híbrida depende do RRF; parâmetros só devem mudar com a avaliação da Fase 6.
 - O streaming do provedor OpenAI (`create(stream=True)`) ainda não foi exercitado com chave real.
+- Com o provedor `fake`, resumos/comparações apenas ecoam o primeiro trecho; a qualidade real depende de um LLM.
+- Sem exportação em PDF/DOCX (apenas Markdown e JSON); perguntas sugeridas usam amostra de trechos em documentos longos.
 - E-mails com domínios reservados (ex.: `.local`) são rejeitados pelo validador; a mensagem agora é traduzida.
 
 ## Decisões de arquitetura
@@ -121,7 +151,7 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
    `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
-2. Iniciar a **Fase 4** (Inteligência documental): resumos (geral, executivo, tópicos, obrigações e prazos, FAQ,
-   pontos de atenção) em segundo plano com estratégia hierárquica para documentos longos, comparação entre
-   documentos com evidências, extração de tópicos, perguntas sugeridas e exportação de resultados.
+2. Iniciar a **Fase 5** (Administração e segurança): administração de membros (convites, papéis), permissões
+   avançadas, controle de uso e limites de custo por workspace, auditoria consultável, políticas de retenção,
+   gestão de provedores e avaliação técnica de OCR opcional.
 3. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).
