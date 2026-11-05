@@ -95,9 +95,17 @@ Capturadas automaticamente pela suíte E2E (`e2e/screenshots.spec.ts`) contra a 
 
 ## Demonstração
 
-Para uma demo pública use apenas os documentos fictícios de `samples/`: `scripts/seed_demo.py` cria a conta, a coleção e
-envia os arquivos (passo a passo em [docs/deploy.md](docs/deploy.md#demo-pública-com-documentos-fictícios)). Sem chave de
-provedor, a interface deixa claro que as respostas vêm de um provedor determinístico de testes.
+O modo demonstração (`DEMO_MODE=true`) prepara o DocMind para visitantes: aviso fixo de ambiente de demonstração,
+cadastro com workspace isolado e limitado por visitante, teto diário global de tokens que protege a quota da chave e
+um botão "Carregar documentos de exemplo" com os arquivos fictícios de `samples/`. A publicação num servidor Linux é
+um comando, com HTTPS automático (domínio próprio ou `<ip>.sslip.io`):
+
+```bash
+sudo ./deploy/bootstrap.sh --sslip        # ou --domain demo.seu-dominio.com
+```
+
+Passo a passo, backup e limitações em [docs/deploy.md](docs/deploy.md#demo-pública). Sem chave de provedor
+(`--fake`), a interface deixa claro que as respostas vêm de um provedor determinístico de testes.
 
 ## Arquitetura
 
@@ -137,7 +145,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): **Google Gemini** (`google-genai`: `gemini-embedding-001` + `gemini-3.5-flash-lite`, padrão), OpenAI ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (145 testes), Vitest + Testing Library (102 testes), Playwright E2E (8 testes + screenshots) |
+| Testes | Pytest (156 testes), Vitest + Testing Library (111 testes), Playwright E2E (8 testes + screenshots) |
 
 ## Como executar
 
@@ -233,7 +241,7 @@ Nenhuma nota é publicada sem execução reproduzível.
 
 ## Deploy
 
-`docker-compose.prod.yml` + Caddy. Checklist e variáveis em [docs/deploy.md](docs/deploy.md).
+`docker-compose.prod.yml` + Caddy com HTTPS automático (`SITE_ADDRESS`), `deploy/bootstrap.sh` para servidores Ubuntu/Debian e `deploy/backup.sh` para backups. Checklist e variáveis em [docs/deploy.md](docs/deploy.md).
 
 ## Roadmap
 

@@ -59,8 +59,8 @@ provedor é determinístico de testes (as respostas não são geradas por um LLM
    LLM_ALLOWED_MODELS=gemini-3.5-flash-lite
    ```
    Depois `docker compose up -d --force-recreate api worker`. A chave aparece nos logs apenas como "presente".
-3. **Validar** sem imprimir a chave: `docker compose exec api python ../scripts/check_gemini.py` (ou
-   `cd backend && uv run python ../scripts/check_gemini.py --compose` no host). O script confere chave, modelos
+3. **Validar** sem imprimir a chave: `cd backend && uv run python ../scripts/check_gemini.py --compose` no host
+   (em produção: `docker compose -f docker-compose.prod.yml exec api python /scripts/check_gemini.py`). O script confere chave, modelos
    disponíveis para a conta, um embedding de 1536 dimensões e uma geração curta; sem chave, sai com código 2 e
    marca a verificação como **pendente**.
 4. **Nível gratuito**: os limites (requisições por minuto/dia, tokens por minuto) são por projeto e visíveis no
@@ -98,20 +98,26 @@ cd apps/web && pnpm test
 
 ## Produção
 
-`docker-compose.prod.yml` constrói as imagens (API/worker em `python:3.13-slim` com usuário não
-root; frontend servido por **Caddy** com proxy de `/api/*` para a API).
+`docker-compose.prod.yml` constrói as imagens (API/worker em `python:3.13-slim` com usuário não root; frontend
+servido por **Caddy**, que também faz o proxy de `/api/*` e o HTTPS). Só o Caddy publica portas (80/443);
+PostgreSQL, Redis, MinIO e a API ficam na rede interna do Compose. Logs com rotação (10 MB × 3 por serviço).
+
+- **HTTPS automático**: com `SITE_ADDRESS=demo.seu-dominio.com` no `.env`, o Caddy obtém e renova o certificado
+  Let's Encrypt e redireciona HTTP para HTTPS. Exige o DNS apontando para o servidor e as portas 80 e 443 abertas.
+  Sem domínio, use `<ip-com-hifens>.sslip.io` (ex.: `203-0-113-10.sslip.io`), que resolve para o próprio IP e aceita
+  certificado válido. `SITE_ADDRESS` vazio = HTTP simples na porta 80 (atrás de outro proxy).
+- Certificados ficam no volume `caddy_data`; apagá-lo força nova emissão (sujeita aos limites do Let's Encrypt).
 
 Checklist mínimo:
 
-- `APP_ENV=production`, `SECRET_KEY` aleatório, `COOKIE_SECURE=true`, `CORS_ORIGINS` com o domínio real.
-- `GEMINI_API_KEY` apenas no `.env` do host (ou no gerenciador de segredos), com `EMBEDDING_PROVIDER=gemini` e
-  `LLM_PROVIDER=gemini`; confira com `scripts/check_gemini.py --compose` que `api` e `worker` a recebem.
-- Senhas fortes para PostgreSQL e MinIO; bucket privado.
-- TLS: coloque o Caddy (ou outro proxy) com certificado na frente do serviço `web`.
-- Backups do volume do PostgreSQL e do MinIO; retenção definida.
+- `APP_ENV=production`, `SECRET_KEY` aleatório, `COOKIE_SECURE=true`, `CORS_ORIGINS` e `APP_BASE_URL` com o domínio real.
+- `GEMINI_API_KEY` apenas no `.env` do host (permissão 600) ou no gerenciador de segredos, com `EMBEDDING_PROVIDER=gemini`
+  e `LLM_PROVIDER=gemini`; confira com `docker compose -f docker-compose.prod.yml exec api python /scripts/check_gemini.py`.
+- Senhas fortes e aleatórias para PostgreSQL e MinIO (o bootstrap gera); bucket privado.
+- Backups diários do PostgreSQL e do MinIO (`deploy/backup.sh`); retenção definida.
 - Limites de uso (`RATE_LIMIT_*`, `MAX_UPLOAD_MB`, `MAX_PDF_PAGES`) revisados.
 - Monitoramento de `GET /api/v1/health`.
-- `APP_BASE_URL` com o domínio público (links de convite e recuperação de senha) e `MAIL_*` para envio real de e-mails.
+- `MAIL_*` para envio real de e-mails (sem isso, convites e recuperação de senha só aparecem no log do servidor).
 - O worker roda o Celery beat embutido (`-B`) para a retenção diária; mantenha **uma única** réplica do worker com `-B` (ou separe um serviço `beat`).
 - OCR: só se instalar `tesseract-ocr` + idioma na imagem e `uv sync --extra ocr` (ver `docs/ocr-evaluation.md`).
 
@@ -119,21 +125,84 @@ Checklist mínimo:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-## Demo pública com documentos fictícios
+## Demo pública
 
-1. Suba a stack de produção em um host com TLS (Caddy na frente) e `APP_BASE_URL` apontando para o domínio.
-2. Configure `GEMINI_API_KEY` com provedores `gemini` (o nível gratuito costuma bastar para uma demo, com os limites
-   do projeto) ou mantenha `EMBEDDING_PROVIDER=fake`/`LLM_PROVIDER=fake` para uma demo sem chamadas externas —
-   a interface informa que as respostas não vêm de um modelo real.
-3. Gere os documentos fictícios e semeie a conta de demonstração:
-   ```bash
-   cd backend && uv run python ../scripts/generate_samples.py
-   uv run python ../scripts/seed_demo.py --base https://demo.seu-dominio --email demo@seu-dominio --password '<senha-forte>'
-   ```
-   O script cria (ou reaproveita) a conta, uma coleção "Documentos de demonstração" e envia os cinco arquivos de `samples/`.
-4. Em Administração → Limites e custos, defina um orçamento mensal de tokens e `max_documents` para conter abuso;
-   em Retenção, configure a limpeza automática (ex.: conversas 7 dias, documentos excluídos 1 dia).
-5. Nunca publique documentos reais na demo: os arquivos de `samples/` são sintéticos por desenho.
+O modo demonstração (`DEMO_MODE=true`) foi feito para expor o DocMind a visitantes sem expor a chave nem dados
+reais:
+
+- **Aviso fixo** no login e uma faixa no app: "Ambiente de demonstração… não envie documentos reais", com o aviso de
+  uso de dados do nível gratuito da Gemini API.
+- **Cadastro aberto com workspace isolado por visitante** (`REGISTRATION_ENABLED=true`). Cada workspace novo recebe
+  os limites `NEW_WORKSPACE_MAX_DOCUMENTS`, `NEW_WORKSPACE_MAX_STORAGE_MB`, `NEW_WORKSPACE_MONTHLY_TOKEN_BUDGET` e a
+  retenção `NEW_WORKSPACE_RETENTION_DAYS` (conversas, análises e histórico apagados após N dias).
+- **Teto diário global** (`GLOBAL_DAILY_TOKEN_BUDGET`): soma o consumo de todos os visitantes; atingido, perguntas,
+  pesquisas, análises e uploads respondem "limite diário de uso de IA desta instância" até a meia-noite UTC. É o que
+  impede um visitante de esgotar a quota gratuita da chave para todos.
+- **Botão "Carregar documentos de exemplo"** no estado vazio de Documentos e do Dashboard: envia os cinco arquivos
+  fictícios de `samples/` pelo pipeline normal (mesmos limites, deduplicação e teto), numa coleção própria.
+- Limites de upload e uso mais restritos no modelo `deploy/env.production.example` (5 MB, 40 páginas, 20 perguntas/hora).
+
+### Servidor
+
+Qualquer VM Linux (Ubuntu 22.04/24.04 ou Debian 12) com **2 vCPU e 4 GB de RAM** roda a stack com folga; com 2 GB
+funciona com swap (o bootstrap cria 2 GB se faltar memória). Opções comuns: uma VPS pequena em qualquer provedor ou
+uma VM ARM do nível Always Free da Oracle Cloud (confira as condições atuais do provedor). Requisitos: IP público,
+portas 80 e 443 liberadas no firewall **do provedor** (security list / security group) e acesso SSH.
+
+> **Oracle Cloud**: além da security list, as imagens Ubuntu da OCI trazem regras `iptables` que bloqueiam 80/443.
+> Libere com `sudo iptables -I INPUT 6 -p tcp -m multiport --dports 80,443 -j ACCEPT && sudo netfilter-persistent save`.
+
+### Publicação em um comando
+
+```bash
+# no servidor
+git clone https://github.com/UyankDouglas/docmind-ai.git && cd docmind-ai
+sudo ./deploy/bootstrap.sh --sslip                      # ou: --domain demo.seu-dominio.com
+```
+
+O `deploy/bootstrap.sh`:
+
+1. instala Docker Engine + Compose pelo repositório oficial da Docker (se ainda não houver) e cria swap se faltar memória;
+2. descobre o IP público (com `--sslip`) e monta o endereço `<ip>.sslip.io`;
+3. gera o `.env` a partir de `deploy/env.production.example` com `SECRET_KEY` e senhas aleatórias, e pede a
+   `GEMINI_API_KEY` **sem eco** (ou lê da variável de ambiente); o arquivo fica com permissão 600. Um `.env`
+   existente nunca é sobrescrito;
+4. sobe a stack, espera a API, roda `check_gemini.py` dentro do contêiner e confere o HTTPS público;
+5. opcionalmente (`--seed-email demo@seu-dominio`) cria uma conta já com os documentos fictícios (senha pedida no terminal).
+
+Sem chave, `--fake` publica a demo com o provedor determinístico; a interface avisa que as respostas não vêm de um
+modelo real.
+
+### Operação
+
+```bash
+docker compose -f docker-compose.prod.yml ps                     # estado
+docker compose -f docker-compose.prod.yml logs -f api worker web # logs
+git pull && docker compose -f docker-compose.prod.yml up -d --build   # atualizar
+```
+
+Para fechar o cadastro depois (só convites), troque `REGISTRATION_ENABLED=false` no `.env` e recrie `api` e `worker`
+(`docker compose -f docker-compose.prod.yml up -d --force-recreate api worker`). O mesmo vale para os limites.
+
+### Backup e restauração
+
+```bash
+sudo ./deploy/backup.sh                 # ./backups, mantém 7 dias
+echo "30 3 * * * root cd $(pwd) && ./deploy/backup.sh >> /var/log/docmind-backup.log 2>&1" | sudo tee /etc/cron.d/docmind-backup
+
+# restauração (com a stack no ar)
+docker compose -f docker-compose.prod.yml exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' < backups/docmind-db-<DATA>.dump
+docker compose -f docker-compose.prod.yml exec -T minio tar -C /bitnami/minio/data -xzf - < backups/docmind-files-<DATA>.tar.gz
+```
+
+### Limitações conhecidas da demo
+
+- Contas e documentos dos visitantes não expiram sozinhos (a retenção apaga conversas, análises, histórico e
+  documentos excluídos). Para zerar a demo: `docker compose -f docker-compose.prod.yml down -v` e subir de novo.
+- Sem `MAIL_*`, visitantes não recuperam senha por e-mail.
+- O teto diário conta tokens, não requisições; os limites por minuto do nível gratuito ainda podem gerar 429
+  transitórios, tratados com retentativas e mensagem ao usuário.
+- Nunca publique documentos reais na demo: os arquivos de `samples/` são sintéticos por desenho.
 
 ## CI
 

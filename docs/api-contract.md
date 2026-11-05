@@ -565,3 +565,33 @@ síncrono ainda persiste a pergunta com `status = "ai_unavailable"`? **Não**: a
   `ai_quota_exceeded` (429 do provedor; "tente mais tarde"), `ai_auth_failed`, `ai_model_unavailable`,
   `ai_invalid_request`, `ai_timeout`, `ai_temporarily_unavailable`, `ai_empty_response`, `ai_response_blocked`.
   `ai_unavailable` continua significando "provedor não configurado".
+
+## Demonstração pública (05/11/2026)
+
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| GET | `/instance` | — | `InstanceInfo` (público, sem sessão) |
+| POST | `/demo/samples` | — | `202 DemoSamplesResult` (admin/editor; **404 fora do modo demonstração** ou sem os arquivos no servidor) |
+
+```ts
+interface InstanceInfo {
+  demo_mode: boolean;              // DEMO_MODE
+  registration_enabled: boolean;   // REGISTRATION_ENABLED; false => POST /auth/register responde 403 registration_disabled
+  demo_samples_available: boolean; // modo demo ligado e arquivos presentes em DEMO_SAMPLES_DIR
+  demo_notice: string | null;      // aviso exibido no login e no app (inclui o aviso de uso de dados do nível gratuito Gemini)
+}
+interface DemoSamplesResult {
+  collection_id: string | null;    // coleção "Documentos de exemplo" (criada se não existir)
+  loaded: string[];                // arquivos enviados agora (processamento assíncrono, como um upload)
+  skipped: string[];               // já existiam no workspace (mesmo SHA-256)
+  stopped_reason: string | null;   // limite atingido no meio da carga (resposta parcial)
+}
+```
+
+- Workspaces criados no cadastro recebem `limits` e `retention` iniciais de `NEW_WORKSPACE_*` (visíveis e editáveis
+  pelo admin em `/workspaces/current/settings`).
+- `GLOBAL_DAILY_TOKEN_BUDGET` soma os tokens do dia (UTC) de **todos** os workspaces. Atingido o teto, perguntas,
+  pesquisas, análises e uploads respondem `429 daily_budget_exceeded` ("limite diário de uso de IA desta instância").
+- Se nenhum arquivo de exemplo couber (limite de documentos ou teto diário), `POST /demo/samples` responde 429 com a
+  mensagem do limite, sem resposta parcial.
+

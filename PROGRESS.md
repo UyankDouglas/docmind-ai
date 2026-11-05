@@ -10,7 +10,51 @@ fases concluídas. O provedor padrão passou a ser a Gemini API (`gemini-embeddi
 `gemini-3.5-flash-lite`, SDK oficial `google-genai`), com OpenAI e `fake` preservados. Com a chave do autor no
 `.env` local: `scripts/check_gemini.py --compose` aprovado, 69 documentos reindexados com backup, smoke test
 completo e fluxo na interface (pergunta → citação → visualizador) confirmados; a avaliação RAG com juiz LLM está
-registrada em `docs/evaluation/` (ver tabela abaixo). Pendente: hospedar a demo pública.
+registrada em `docs/evaluation/` (ver tabela abaixo).
+
+**Demo pública: kit de deploy e modo demonstração prontos e validados localmente** (05/11/2026). Falta apenas
+executar `deploy/bootstrap.sh` num servidor do autor (VM Linux com IP público) e registrar o link no README.
+
+## Demo pública: modo demonstração e kit de deploy (05/11/2026)
+
+- [x] **Modo demonstração** (`DEMO_MODE`): `GET /instance` público (modo, cadastro, exemplos, aviso); aviso fixo no
+  login/cadastro e faixa recolhível no app, com o aviso de uso de dados do nível gratuito Gemini.
+- [x] **Cadastro controlável** (`REGISTRATION_ENABLED`): desligado, `POST /auth/register` responde 403
+  `registration_disabled` e a UI esconde o link e explica que só convites criam contas.
+- [x] **Limites de workspaces novos** (`NEW_WORKSPACE_MAX_DOCUMENTS`, `_MAX_STORAGE_MB`, `_MONTHLY_TOKEN_BUDGET`,
+  `_RETENTION_DAYS`) gravados no cadastro e editáveis pelo admin do workspace.
+- [x] **Teto diário global** (`GLOBAL_DAILY_TOKEN_BUDGET`): soma o consumo de todos os workspaces; bloqueia
+  perguntas, pesquisas, análises e uploads com 429 `daily_budget_exceeded`.
+- [x] **Documentos de exemplo** (`POST /demo/samples`): botão no estado vazio de Documentos e do Dashboard; os
+  cinco arquivos de `samples/` passam pelo pipeline normal numa coleção própria (idempotente, respeita limites).
+  O PDF do aditivo, que faltava no repositório, foi gerado e versionado.
+- [x] **Limite de upload exibido pelo servidor**: a área de envio usa `max_upload_mb` de `/usage` (antes, 20 MB fixos).
+- [x] **Kit de deploy**: Caddy com HTTPS automático por `SITE_ADDRESS` (Let's Encrypt; `sslip.io` sem domínio) e HSTS;
+  `docker-compose.prod.yml` só publica 80/443, com healthcheck da API, `--proxy-headers`, rotação de logs, volumes do
+  Caddy e `samples/`+`scripts/` montados somente leitura; `deploy/env.production.example` (limites da demo);
+  `deploy/bootstrap.sh` (Docker oficial, swap, `.env` com segredos aleatórios e chave sem eco, subida, `check_gemini`,
+  teste do HTTPS, conta opcional); `deploy/backup.sh` (pg_dump + arquivos do MinIO, retenção); `.dockerignore` de
+  backend e web; `seed_demo.py` funciona por HTTP interno com cookies `Secure` e lê a senha do stdin.
+- [x] **Docs**: `docs/deploy.md` (produção, demo, servidor, operação, backup/restauração, limitações),
+  `docs/decisions.md` (ADR 31–33), `docs/api-contract.md`, `.env.example`, README.
+- [ ] **Publicar** num servidor do autor e registrar o link (depende de uma VM com IP público e acesso SSH).
+
+### Testes executados (demo pública, 05/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **156 passed** (11 novos em `test_demo_mode.py`: `/instance` público e aviso, cadastro desligado, limites e retenção de workspaces novos, teto diário compartilhado entre workspaces em pergunta/pesquisa/upload, carga dos exemplos pelo pipeline, idempotência, limite no meio da carga, 404 fora do modo demo, sessão obrigatória) |
+| Frontend `typecheck`, `lint`, `test` | 0 erros, **111 passed** (aviso da demo, link de cadastro, botão de exemplos por papel, limite de upload do servidor) |
+| `shellcheck` (bootstrap e backup) e geração do `.env` num contêiner Ubuntu 24.04 | OK; segredos aleatórios, chave gravada intacta, nenhum marcador restante |
+| Stack de produção local (`docker-compose.prod.yml`, `SITE_ADDRESS=localhost`, Gemini real) | **OK**: todos os serviços saudáveis; HTTPS com certificado do Caddy, HTTP → HTTPS (308), HSTS/CSP/X-Frame-Options; só 80/443 publicadas; visitante cadastrado com limites e retenção de 7 dias, cookies `Secure`/`HttpOnly`; cinco exemplos prontos em 4,8 s; pergunta de aviso prévio respondida com o aditivo (60 dias) e o contrato original (45 dias) citados; pergunta sem resposta → `no_evidence`; `check_gemini.py` dentro do contêiner OK (uma rodada com 503 transitório do nível gratuito, a seguinte OK); `seed_demo.py` por `http://api:8000` OK; `backup.sh` gerou dump e arquivo do MinIO, e o dump restaurou num banco separado (10 documentos, 22 embeddings) |
+| Interface (stack de produção, navegador) | **OK**: aviso no cadastro, faixa no app, área de envio com "até 5.0 MB", botão "Carregar documentos de exemplo" criou a coleção com os 5 arquivos, chat respondeu "35 dias" com a fonte do manual DOCX em 1,8 s |
+
+### Limitações conhecidas da demo
+
+- Contas e documentos de visitantes não expiram sozinhos (a retenção cobre conversas, análises, histórico e excluídos).
+- Sem `MAIL_*`, visitantes não recuperam senha; o teto diário conta tokens, não requisições por minuto.
+- O bootstrap foi validado por partes (shellcheck, geração do `.env`, stack de produção local); a execução completa
+  num servidor real com DNS e Let's Encrypt só acontece na publicação.
 
 ## Migração OpenAI → Google Gemini (05/11/2026)
 
@@ -268,14 +312,14 @@ configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e
 
 ## Decisões de arquitetura
 
-Ver `docs/decisions.md` (ADRs 1–15). Destaques: SQLAlchemy síncrono; sessões no servidor; CSRF validado
+Ver `docs/decisions.md` (ADRs 1–33). Destaques: SQLAlchemy síncrono; sessões no servidor; CSRF validado
 contra a sessão; `EmbeddingRecord` separado; `workspace_id` desnormalizado em chunks/embeddings; busca
 exata sem HNSW; citações validadas estruturalmente; PGlite como banco local sem Docker.
 
 ## Próximos passos
 
-1. Hospedar a demo pública (TLS + `APP_BASE_URL` + `scripts/seed_demo.py`, com `GEMINI_API_KEY` só no host) e
-   registrar o link no README.
+1. Publicar a demo: numa VM Linux com IP público, `git clone` + `sudo ./deploy/bootstrap.sh --sslip` (ou `--domain`),
+   agendar `deploy/backup.sh` e registrar o link no README.
 2. Com a avaliação real como baseline, comparar alvos de chunk/`top_k`/limiar e avaliar `GEMINI_THINKING_LEVEL`
    (custo/latência × sustentação), repetindo `python -m app.rag.evaluation --judge llm`.
 4. Evoluções fora do plano original: 2FA, reranker neural, rasterização para OCR, exportação PDF/DOCX.
