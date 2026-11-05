@@ -357,3 +357,79 @@ Mesma validação do endpoint síncrono. Sequência de eventos (`event:` + `data
 
 Em `no_evidence` e `ai_unavailable` não há `delta`: vêm `user_message`, `context` (vazio) e `done`.
 Heartbeat: linhas de comentário `: ping` a cada 15 s. Cabeçalhos: `Cache-Control: no-store`, `X-Accel-Buffering: no`.
+
+---
+
+# Adições da Fase 4 — Inteligência Documental
+
+Todas as análises (resumos, comparações, tópicos, perguntas sugeridas) são **assíncronas**: o endpoint cria uma
+`Analysis` com status `queued` e devolve 202; o worker processa; o cliente faz polling em `GET /analyses/{id}`
+a cada 2–3 s enquanto o status for `queued`/`running`. O conteúdo gerado nunca é apresentado sem a lista de
+fontes e a seção de limitações.
+
+## Tipos
+
+```ts
+type AnalysisKind = "summary" | "comparison" | "topics" | "questions";
+type SummaryType = "general" | "executive" | "topics" | "obligations" | "faq" | "attention";
+type AnalysisStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+type AnalysisStrategy = "single_pass" | "hierarchical" | "retrieval";
+
+interface AnalysisSource {
+  index: number;                  // marcador [n] usado no conteúdo
+  chunk_id: string | null; document_id: string | null; document_name: string;
+  document_label: string | null;  // "A", "B"... em comparações
+  location_type: LocationType; location_label: string; snippet: string;
+}
+
+interface AnalysisCoverage {
+  chunks_used: number; chunks_total: number;   // por documento somados
+  tokens_used: number; strategy: AnalysisStrategy;
+  parts: number;                  // partes do resumo hierárquico (1 = passagem única)
+  complete: boolean;              // true quando TODOS os trechos dos documentos foram lidos
+}
+
+interface AnalysisResult {
+  content: string;                // Markdown com marcadores [n]
+  sources: AnalysisSource[];
+  coverage: AnalysisCoverage;
+  limitations: string[];          // frases em pt-BR geradas pelo backend (nunca pelo modelo)
+  topics?: Array<{ title: string; description: string; source_indices: number[] }>;      // kind = topics
+  questions?: string[];           // kind = questions
+}
+
+interface Analysis {
+  id: string; kind: AnalysisKind; summary_type: SummaryType | null;
+  status: AnalysisStatus; title: string;
+  document_ids: string[]; documents: Array<{ id: string; name: string; label: string | null }>;
+  question: string | null;        // comparação: pergunta orientadora opcional
+  result: AnalysisResult | null;  // só quando succeeded
+  error_message: string | null;
+  model: string | null; prompt_tokens: number | null; completion_tokens: number | null;
+  latency_ms: number | null;
+  created_at: string; started_at: string | null; finished_at: string | null;
+}
+```
+
+## Endpoints
+
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| POST | `/documents/{id}/summarize` | `{ type: SummaryType }` | `202 Analysis` (documento precisa estar `ready`; 409 caso contrário) |
+| POST | `/documents/{id}/topics` | — | `202 Analysis` |
+| POST | `/documents/{id}/questions` | — | `202 Analysis` (gera ~5 perguntas sugeridas; reutiliza a última bem-sucedida da mesma versão do documento se existir, devolvendo 200) |
+| POST | `/documents/compare` | `{ document_ids: string[] (2..5), question?: string }` | `202 Analysis` |
+| GET | `/analyses` | `document_id?`, `kind?`, `page`, `page_size` | `Paginated<Analysis>` (do workspace; `result` incluído) |
+| GET | `/analyses/{id}` | — | `Analysis` |
+| DELETE | `/analyses/{id}` | — | 204 (autor ou admin) |
+| POST | `/analyses/{id}/cancel` | — | `Analysis` (cooperativo; 409 se terminou) |
+| GET | `/analyses/{id}/export?format=md\|json` | — | arquivo (`text/markdown` ou `application/json`, `Content-Disposition: attachment`) |
+| GET | `/conversations/{id}/export?format=md\|json` | — | arquivo com mensagens e fontes |
+
+Regras:
+- Limites do servidor: comparação com 2 a 5 documentos; análise recusada (422 `analysis_too_large`) quando o total
+  de tokens dos documentos excede `ANALYSIS_MAX_INPUT_TOKENS` (padrão 120000).
+- `coverage.complete = false` e uma limitação explícita sempre que a análise usar recuperação (comparações de
+  documentos longos usam os `top_k` trechos mais relevantes por documento para a pergunta/aspectos).
+- Em `ai_unavailable` a análise falha com `error_message` honesto (não há resultado simulado).
+- Perguntas sugeridas: ao clicar, o frontend cria uma conversa com `document_ids=[id]` e envia a pergunta.

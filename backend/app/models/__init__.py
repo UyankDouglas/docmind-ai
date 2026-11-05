@@ -1,5 +1,6 @@
 """Modelos ORM. Importar este pacote registra todas as tabelas na Base."""
 
+from app.models.analysis import Analysis
 from app.models.base import Base
 from app.models.collection import Collection
 from app.models.conversation import Conversation, Feedback, Message, MessageCitation
@@ -26,6 +27,7 @@ from app.models.user import User, UserSession
 from app.models.workspace import Workspace, WorkspaceMember
 
 __all__ = [
+    "Analysis",
     "AuditLog",
     "Base",
     "Collection",

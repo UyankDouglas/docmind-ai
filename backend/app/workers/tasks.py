@@ -66,3 +66,13 @@ def _mark_failed(document_id: uuid.UUID, job_id: uuid.UUID, message: str) -> Non
             job.status = JobStatus.FAILED
             job.error_message = message
             job.finished_at = utcnow()
+
+
+@celery_app.task(bind=True, name="analysis.run", max_retries=2)
+def run_analysis_task(self: Task, analysis_id: str) -> dict:
+    """Executa uma análise documental (resumo, comparação, tópicos ou perguntas sugeridas)."""
+    from app.services.analyses import run_analysis
+
+    with session_scope() as db:
+        analysis = run_analysis(db, uuid.UUID(analysis_id))
+        return {"status": analysis.status, "kind": analysis.kind, "error": analysis.error_message}

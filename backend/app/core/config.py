@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     max_context_tokens: int = 6000
     max_output_tokens: int = 800
     max_question_chars: int = 2000
+    # --- Análises (resumos, comparações, tópicos) ---
+    analysis_max_input_tokens: int = 120_000
+    analysis_max_output_tokens: int = 1500
+    analysis_compare_top_k: int = 6
+    analysis_max_documents: int = 5
 
     # --- Limites de uso ---
     rate_limit_login_per_minute: int = 10
