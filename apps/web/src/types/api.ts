@@ -346,18 +346,20 @@ export interface AiStatus {
   notice: string;
 }
 
+export interface UsageBaseLimits {
+  questions_per_hour: number;
+  uploads_per_hour: number;
+  max_upload_mb: number;
+  max_pdf_pages: number;
+}
+
 export interface Usage {
   questions_last_hour: number;
   uploads_last_hour: number;
   prompt_tokens_month: number;
   completion_tokens_month: number;
   estimated_cost_usd_month: number | null;
-  limits: {
-    questions_per_hour: number;
-    uploads_per_hour: number;
-    max_upload_mb: number;
-    max_pdf_pages: number;
-  };
+  limits: UsageBaseLimits;
   feedback?: FeedbackSummary;
 }
 
@@ -458,3 +460,141 @@ export interface Analysis {
 }
 
 export type ExportFormat = "md" | "json";
+
+// ---------------------------------------------------------------- Fase 5 — Administração e segurança
+
+export type InvitationStatus = "pending" | "accepted" | "revoked" | "expired";
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: Role;
+  status: InvitationStatus;
+  invited_by: { id: string; name: string };
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  /** só na criação e para admins (sem e-mail configurado o admin copia o link) */
+  accept_url: string | null;
+}
+
+export interface InvitationPublic {
+  workspace_name: string;
+  email: string;
+  role: Role;
+  expires_at: string;
+  status: InvitationStatus;
+}
+
+export interface WorkspaceMembership {
+  id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  is_current: boolean;
+}
+
+export interface WorkspaceLimits {
+  monthly_token_budget: number | null;
+  monthly_cost_budget_usd: number | null;
+  max_documents: number | null;
+  max_storage_mb: number | null;
+}
+
+export interface WorkspaceRetention {
+  conversations_days: number | null;
+  analyses_days: number | null;
+  search_history_days: number | null;
+  deleted_documents_days: number | null;
+  last_run_at: string | null;
+}
+
+export interface WorkspaceAiSettings {
+  llm_model: string | null;
+  allowed_llm_models: string[];
+  embedding_model: string;
+  ocr_enabled: boolean;
+  ocr_available: boolean;
+}
+
+export interface WorkspaceSettingsFull extends WorkspaceSettings {
+  limits: WorkspaceLimits;
+  retention: WorkspaceRetention;
+  ai: WorkspaceAiSettings;
+}
+
+export interface UsageLimitsFull extends UsageBaseLimits, WorkspaceLimits {}
+
+export interface UsageFull extends Omit<Usage, "limits"> {
+  limits: UsageLimitsFull;
+  tokens_month_total: number;
+  budget_used_pct: number | null;
+  documents_count: number;
+  storage_mb: number;
+  blocked: boolean;
+  blocked_reason: string | null;
+}
+
+export interface AuditEntry {
+  id: string;
+  action: string;
+  user: { id: string; name: string; email: string } | null;
+  target_type: string | null;
+  target_id: string | null;
+  ip_address: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AdminUsageByUser {
+  user_id: string;
+  name: string;
+  email: string;
+  questions: number;
+  uploads: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  estimated_cost_usd: number | null;
+}
+
+export interface AdminUsageByDay {
+  day: string;
+  questions: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+}
+
+export interface AdminUsage {
+  period_start: string;
+  period_end: string;
+  by_user: AdminUsageByUser[];
+  by_day: AdminUsageByDay[];
+  totals: {
+    questions: number;
+    uploads: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    estimated_cost_usd: number | null;
+    documents: number;
+    storage_mb: number;
+  };
+}
+
+export interface UserSessionInfo {
+  id: string;
+  created_at: string;
+  last_seen_at: string;
+  user_agent: string | null;
+  ip_address: string | null;
+  is_current: boolean;
+}
+
+export interface RetentionRunResult {
+  deleted: { conversations: number; analyses: number; search_queries: number; documents: number };
+}
+
+export const ROLE_LABELS: Record<Role, string> = {
+  admin: "Administrador",
+  editor: "Editor",
+  viewer: "Visualizador",
+};

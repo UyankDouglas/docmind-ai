@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { WorkspaceSettings } from "@/types/api";
+import type { WorkspaceSettingsFull } from "@/types/api";
 import { settingsApi, type WorkspaceSettingsPatch } from "./api";
 
 export const settingsKeys = {
@@ -56,7 +56,7 @@ export function useUpdateWorkspaceSettings() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (patch: WorkspaceSettingsPatch) => settingsApi.updateWorkspaceSettings(patch),
-    onSuccess: (data: WorkspaceSettings) => {
+    onSuccess: (data: WorkspaceSettingsFull) => {
       qc.setQueryData(settingsKeys.workspaceSettings, data);
       void qc.invalidateQueries({ queryKey: ["workspace", "current"] });
       void qc.invalidateQueries({ queryKey: ["settings", "ai"] });

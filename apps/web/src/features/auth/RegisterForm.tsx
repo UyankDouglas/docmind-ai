@@ -1,6 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { z } from "zod";
 import { AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { errorMessage, isApiError } from "@/services/api";
 import { useRegister } from "./hooks";
+import { safeNext } from "./RequireAuth";
 
 const schema = z
   .object({
@@ -24,15 +25,18 @@ type FormValues = z.infer<typeof schema>;
 export function RegisterForm() {
   const register = useRegister();
   const navigate = useNavigate();
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const nextParam = params.get("next");
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: "", email: "", password: "", confirm: "" },
+    defaultValues: { name: "", email: params.get("email") ?? "", password: "", confirm: "" },
   });
 
   const onSubmit = form.handleSubmit(async ({ name, email, password }) => {
     try {
       await register.mutateAsync({ name, email, password });
-      navigate("/", { replace: true });
+      navigate(safeNext(nextParam), { replace: true });
     } catch {
       /* exibido abaixo */
     }
@@ -81,7 +85,7 @@ export function RegisterForm() {
       </Button>
       <p className="text-center text-sm text-muted-foreground">
         Já tem conta?{" "}
-        <Link to="/login" className="font-medium text-primary hover:underline">
+        <Link to={nextParam ? `/login?next=${encodeURIComponent(nextParam)}` : "/login"} className="font-medium text-primary hover:underline">
           Entrar
         </Link>
       </p>

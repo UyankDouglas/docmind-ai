@@ -1,5 +1,9 @@
-import { Moon, SlidersHorizontal, Sun, ThumbsDown, ThumbsUp, Users } from "lucide-react";
+import { Link } from "react-router";
+import { KeyRound, MonitorSmartphone, Moon, ShieldCheck, SlidersHorizontal, Sun, ThumbsDown, ThumbsUp, Users } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { ChangePasswordCard } from "@/features/account/ChangePasswordCard";
+import { SessionsCard } from "@/features/account/SessionsCard";
+import { WorkspaceNameForm } from "@/features/settings/WorkspaceNameForm";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,7 +73,9 @@ export function SettingsPage() {
             ) : workspace.data ? (
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
                 <dt className="text-muted-foreground">Nome</dt>
-                <dd className="font-medium">{workspace.data.name}</dd>
+                <dd>
+                  <WorkspaceNameForm name={workspace.data.name} isAdmin={isAdmin} />
+                </dd>
                 <dt className="text-muted-foreground">Seu papel</dt>
                 <dd>
                   <Badge variant="purple">{ROLE_LABEL[workspace.data.role]}</Badge>
@@ -106,7 +112,38 @@ export function SettingsPage() {
               ) : (
                 <p className="text-sm text-muted-foreground">Não foi possível listar os membros.</p>
               )}
+              {isAdmin ? (
+                <Button asChild variant="link" size="sm" className="mt-2 h-auto px-0">
+                  <Link to="/admin/members">
+                    <ShieldCheck /> Gerenciar membros e convites
+                  </Link>
+                </Button>
+              ) : null}
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="size-4 text-primary" aria-hidden /> Senha
+            </CardTitle>
+            <CardDescription>Ao alterar a senha, as outras sessões são encerradas.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ChangePasswordCard />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MonitorSmartphone className="size-4 text-primary" aria-hidden /> Sessões ativas
+            </CardTitle>
+            <CardDescription>Dispositivos conectados à sua conta. Encerre as que não reconhecer.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <SessionsCard />
           </CardContent>
         </Card>
 

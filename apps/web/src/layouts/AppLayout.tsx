@@ -11,10 +11,12 @@ import {
   MessageSquareText,
   Search,
   Settings,
+  ShieldCheck,
   User,
 } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { WorkspaceSwitcher } from "@/features/workspaces/WorkspaceSwitcher";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -39,12 +41,14 @@ const NAV = [
   { to: "/search", label: "Pesquisa", icon: Search },
   { to: "/compare", label: "Comparar", icon: GitCompareArrows },
   { to: "/settings", label: "Configurações", icon: Settings },
+  { to: "/admin", label: "Administração", icon: ShieldCheck, adminOnly: true },
 ];
 
-function SidebarNav({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
+function SidebarNav({ collapsed, onNavigate, isAdmin }: { collapsed: boolean; onNavigate?: () => void; isAdmin: boolean }) {
+  const items = NAV.filter((item) => !item.adminOnly || isAdmin);
   return (
     <nav aria-label="Navegação principal" className="flex-1 space-y-1 px-2">
-      {NAV.map((item) => {
+      {items.map((item) => {
         const link = (
           <NavLink
             key={item.to}
@@ -86,6 +90,7 @@ export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [search, setSearch] = React.useState("");
+  const isAdmin = user?.workspace.role === "admin";
 
   const isImmersive = location.pathname.startsWith("/chat") || /^\/documents\/[^/]+$/.test(location.pathname);
 
@@ -115,7 +120,7 @@ export function AppLayout() {
           <div className={cn("flex h-16 items-center px-4", collapsed && "justify-center px-0")}>
             <Logo collapsed={collapsed} />
           </div>
-          <SidebarNav collapsed={collapsed} />
+          <SidebarNav collapsed={collapsed} isAdmin={isAdmin} />
           <div className="p-2">
             <Button
               variant="ghost"
@@ -137,7 +142,7 @@ export function AppLayout() {
             <div className="flex h-16 items-center px-4">
               <Logo />
             </div>
-            <SidebarNav collapsed={false} onNavigate={() => setMobileOpen(false)} />
+            <SidebarNav collapsed={false} onNavigate={() => setMobileOpen(false)} isAdmin={isAdmin} />
           </DialogContent>
         </Dialog>
       )}
@@ -153,6 +158,7 @@ export function AppLayout() {
               <Logo size="sm" />
             </>
           ) : null}
+          <WorkspaceSwitcher className="hidden md:flex" />
           <form onSubmit={onSearchSubmit} className="ml-auto hidden w-full max-w-md sm:block" role="search">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -197,6 +203,11 @@ export function AppLayout() {
                 <DropdownMenuItem onSelect={() => navigate("/settings")}>
                   <Settings /> Configurações
                 </DropdownMenuItem>
+                {isAdmin ? (
+                  <DropdownMenuItem onSelect={() => navigate("/admin")}>
+                    <ShieldCheck /> Administração
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuItem destructive onSelect={() => void handleLogout()}>
                   <LogOut /> Sair
                 </DropdownMenuItem>

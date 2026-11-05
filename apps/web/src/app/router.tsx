@@ -12,6 +12,10 @@ import { SearchPage } from "@/pages/SearchPage";
 import { ComparePage } from "@/pages/ComparePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { ForgotPasswordPage } from "@/pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
+import { InvitePage } from "@/pages/InvitePage";
+import { AdminPage } from "@/pages/AdminPage";
 
 export const router = createBrowserRouter([
   {
@@ -22,10 +26,17 @@ export const router = createBrowserRouter([
         children: [
           { path: "/login", element: <LoginPage /> },
           { path: "/register", element: <RegisterPage /> },
+          { path: "/forgot-password", element: <ForgotPasswordPage /> },
         ],
       },
     ],
   },
+  {
+    element: <AuthLayout />,
+    children: [{ path: "/reset-password", element: <ResetPasswordPage /> }],
+  },
+  // Página pública de convite: funciona logado ou não
+  { path: "/invite/:token", element: <InvitePage /> },
   {
     element: <RequireAuth />,
     children: [
@@ -41,6 +52,8 @@ export const router = createBrowserRouter([
           { path: "/search", element: <SearchPage /> },
           { path: "/compare", element: <ComparePage /> },
           { path: "/settings", element: <SettingsPage /> },
+          { path: "/admin", element: <AdminPage /> },
+          { path: "/admin/:section", element: <AdminPage /> },
         ],
       },
     ],

@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { errorMessage, isApiError } from "@/services/api";
 import { useLogin } from "./hooks";
+import { safeNext } from "./RequireAuth";
 
 const schema = z.object({
   email: z.email("Informe um e-mail válido."),
@@ -21,7 +22,8 @@ export function LoginForm() {
   const login = useLogin();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from ?? "/";
+  const nextParam = new URLSearchParams(location.search).get("next");
+  const from = safeNext(nextParam ?? (location.state as { from?: string } | null)?.from);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -86,9 +88,14 @@ export function LoginForm() {
       <Button type="submit" variant="gradient" className="w-full" loading={login.isPending}>
         Entrar
       </Button>
+      <p className="text-center text-sm">
+        <Link to="/forgot-password" className="font-medium text-primary hover:underline">
+          Esqueci minha senha
+        </Link>
+      </p>
       <p className="text-center text-sm text-muted-foreground">
         Ainda não tem conta?{" "}
-        <Link to="/register" className="font-medium text-primary hover:underline">
+        <Link to={nextParam ? `/register?next=${encodeURIComponent(nextParam)}` : "/register"} className="font-medium text-primary hover:underline">
           Criar conta
         </Link>
       </p>

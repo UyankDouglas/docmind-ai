@@ -9,6 +9,7 @@ import type { ExportFormat } from "@/types/api";
 import { useToast } from "@/components/ui/toast";
 import { useMe } from "@/features/auth/hooks";
 import { useAiStatus } from "@/features/settings/hooks";
+import { UsageBlockBanner } from "@/features/settings/UsageBlockBanner";
 import { EMPTY_SCOPE, ScopePicker, type Scope } from "@/features/documents/ScopePicker";
 import { DocumentWorkspace } from "@/features/documents/DocumentWorkspace";
 import { ChatComposer } from "@/features/chat/ChatComposer";
@@ -219,6 +220,7 @@ export function ChatPage() {
           ) : null}
         </div>
 
+        <UsageBlockBanner className="m-3 mb-0" />
         {aiUnavailable ? (
           <Alert variant="warning" className="m-3 mb-0">
             <AlertTriangle />

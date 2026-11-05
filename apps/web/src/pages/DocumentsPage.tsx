@@ -8,6 +8,7 @@ import { useCollection } from "@/features/collections/hooks";
 import { DocumentList } from "@/features/documents/DocumentList";
 import { UploadDropzone } from "@/features/documents/UploadDropzone";
 import { useMe } from "@/features/auth/hooks";
+import { UsageBlockBanner } from "@/features/settings/UsageBlockBanner";
 
 export function DocumentsPage() {
   const { collectionId } = useParams<{ collectionId?: string }>();
@@ -47,6 +48,7 @@ export function DocumentsPage() {
           ) : null
         }
       />
+      <UsageBlockBanner />
       <div className="grid gap-6 lg:grid-cols-[16rem_minmax(0,1fr)]">
         <CollectionsPanel canManage={!!canManage} activeId={collectionId} className="h-fit lg:sticky lg:top-20" />
         <div className="min-w-0">

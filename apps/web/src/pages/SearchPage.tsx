@@ -15,6 +15,7 @@ import { EMPTY_SCOPE, ScopePicker, type Scope } from "@/features/documents/Scope
 import { useClearSearchHistory, useSearchHistory, useSemanticSearch } from "@/features/search/hooks";
 import type { SearchInput } from "@/features/search/api";
 import { useWorkspaceSettings } from "@/features/settings/hooks";
+import { UsageBlockBanner } from "@/features/settings/UsageBlockBanner";
 import { Highlight } from "@/lib/highlight";
 import { documentKind, KIND_ICONS, locationLabel, viewerHref } from "@/lib/documents";
 import { cn, formatRelative } from "@/lib/utils";
@@ -105,6 +106,7 @@ export function SearchPage() {
         title="Pesquisa semântica"
         description="Encontre trechos por significado e por termos exatos, sem geração de resposta por IA. Os resultados mostram documento, localização (página ou seção) e os scores da recuperação."
       />
+      <UsageBlockBanner />
       <div className="grid gap-6 lg:grid-cols-[1fr_16rem]">
         <div>
           <form onSubmit={submit} className="mb-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap" role="search">

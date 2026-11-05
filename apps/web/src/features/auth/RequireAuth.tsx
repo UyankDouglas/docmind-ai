@@ -33,9 +33,20 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
+/** Aceita só caminhos internos (evita open redirect via `?next=`). */
+export function safeNext(value: string | null | undefined, fallback = "/"): string {
+  if (!value) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+  return value;
+}
+
 export function RedirectIfAuthenticated() {
   const { data: user, isPending } = useMe();
+  const location = useLocation();
   if (isPending) return <FullPageLoader />;
-  if (user) return <Navigate to="/" replace />;
+  if (user) {
+    const next = safeNext(new URLSearchParams(location.search).get("next"));
+    return <Navigate to={next} replace />;
+  }
   return <Outlet />;
 }
