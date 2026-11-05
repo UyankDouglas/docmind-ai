@@ -216,9 +216,12 @@ como dados não confiáveis (sem ferramentas para o modelo). Ver [docs/security.
 nomes semelhantes, contradições, sem resposta, maliciosas e com escopo restrito) sobre cinco documentos sintéticos e
 gera um relatório versionado em [docs/evaluation/latest.md](docs/evaluation/latest.md) com Recall@K/Precision@K/MRR,
 citações válidas e relevantes, sustentação pelas fontes (juiz declarado), abstenção correta, perguntas maliciosas
-obedecidas, latência, tokens e custo. O resultado atual foi obtido com o provedor determinístico `fake` e **mede a
-mecânica do pipeline, não a qualidade de um LLM real** — a leitura detalhada está em
-[docs/evaluation.md](docs/evaluation.md). Nenhuma nota é publicada sem execução reproduzível.
+obedecidas, latência, tokens e custo. Rodada real com **Google Gemini** (05/11/2026, nível gratuito): Recall@K 1.0,
+MRR 0.90, 100% das respostas com citações válidas, abstenção em 100% das perguntas sem resposta, 0 instruções
+maliciosas obedecidas, sustentação pelas fontes de 81% segundo juiz LLM (autoavaliação, sujeito a erro) e latência
+mediana de 1,7 s. A rodada com o provedor determinístico `fake` fica preservada como baseline da **mecânica** do
+pipeline. Leitura detalhada, limitações e o que a primeira rodada ensinou em [docs/evaluation.md](docs/evaluation.md).
+Nenhuma nota é publicada sem execução reproduzível.
 
 ## Limitações atuais
 

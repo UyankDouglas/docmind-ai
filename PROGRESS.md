@@ -5,12 +5,12 @@
 
 ## Fase atual
 
-**Migração para Google Gemini: implementada e testada com SDK simulado** (05/11/2026), sobre as seis fases
-concluídas. O provedor padrão passou a ser a Gemini API (`gemini-embedding-001` em 1536 dimensões +
-`gemini-3.5-flash-lite`, SDK oficial `google-genai`), com OpenAI e `fake` preservados. **Pendente, depende do
-autor**: colocar `GEMINI_API_KEY` no `.env` e trocar `EMBEDDING_PROVIDER`/`LLM_PROVIDER` para `gemini`; a validação
-real (`scripts/check_gemini.py`), o fluxo completo com um PDF de `samples/` e a avaliação `--judge llm` ficam
-**pendentes** até lá (nada foi simulado como sucesso). Também pendente: hospedar a demo pública.
+**Migração para Google Gemini: implementada, testada e validada com a API real** (05/11/2026), sobre as seis
+fases concluídas. O provedor padrão passou a ser a Gemini API (`gemini-embedding-001` em 1536 dimensões +
+`gemini-3.5-flash-lite`, SDK oficial `google-genai`), com OpenAI e `fake` preservados. Com a chave do autor no
+`.env` local: `scripts/check_gemini.py --compose` aprovado, 69 documentos reindexados com backup, smoke test
+completo e fluxo na interface (pergunta → citação → visualizador) confirmados; a avaliação RAG com juiz LLM está
+registrada em `docs/evaluation/` (ver tabela abaixo). Pendente: hospedar a demo pública.
 
 ## Migração OpenAI → Google Gemini (05/11/2026)
 
@@ -57,12 +57,14 @@ real (`scripts/check_gemini.py`), o fluxo completo com um PDF de `samples/` e a 
 | Pytest contra PostgreSQL+pgvector do Compose | **145 passed** (33 unitários novos em `test_unit_gemini.py`: task types, dimensão, normalização, lotes, tokens oficial/estimado, conversão de papéis, geração, streaming, 429/credencial/404/timeout/rede, vazio/bloqueio, backoff, `ai_configured`, fábricas, rótulos; 6 de integração em `test_reindex_and_provider_errors.py`: exclusão de embeddings de outro modelo, reindexação no lugar com backup/restauração, falha sem deixar `ready` + parada por quota, quota no chat (sync e SSE), falha de embeddings no chat/busca, pipeline com credencial inválida e quota) |
 | Ruff + `alembic check` | OK, sem drift |
 | Frontend `typecheck`, `lint`, `test` | 0 erros TS, 0 erros ESLint, **102 passed** |
-| `scripts/check_gemini.py` (sem chave) | **pendente** — sai com código 2 e marca `api_key` como ausente; nenhuma chamada real feita |
-| Teste real da API Gemini e fluxo completo com `samples/` | **pendente** (requer `GEMINI_API_KEY` do autor) |
+| `scripts/check_gemini.py --compose` (chave real) | **OK**: chave válida (60 modelos visíveis), `gemini-3.5-flash-lite` e `gemini-embedding-001` disponíveis, embedding de pergunta e de documentos com 1536 dimensões e norma 1.0 (`RETRIEVAL_QUERY`/`RETRIEVAL_DOCUMENT`), geração respondeu com `model_version=gemini-3.5-flash-lite` (21 tokens de entrada, 4 de saída, 0,9 s), streaming em 2 fragmentos, `GEMINI_API_KEY` presente em `api` e `worker` |
+| Reindexação (`python -m app.rag.embeddings.reindex --yes`) | **OK**: 69 documentos (158 chunks) indexados com `fake-hash-v1` substituídos no lugar por `gemini-embedding-001`, backup `20261105T141817Z-9d7224`, 0 falhas, ~40 s, sem 429 |
+| `scripts/smoke_test.py` com Gemini | **OK**: upload → `ready` em 3 s (5 páginas, 3 trechos) → resposta `ok` com `[1]` para o contrato (p. 3–4, "45 (quarenta e cinco) dias") → pergunta sem resposta → `no_evidence` sem citações → DOCX e TXT respondidos com fontes → download |
+| Interface (stack Docker, navegador) | **OK**: Administração → Provedores mostra "Google Gemini", "Gemini 3.5 Flash-Lite", "Gemini Embedding 001" e o aviso de uso de dados no nível gratuito; chat respondeu em 2,6 s com citação [1] e o clique na fonte abriu o PDF na página citada |
+| Avaliação RAG com Gemini (`python -m app.rag.evaluation --judge llm`, nível gratuito) | **43 perguntas, 0 erros**: Recall@K 1.0, MRR 0.90, 1º lugar 83%, citações válidas 100%, citações relevantes 97%, sustentação (juiz = o próprio modelo) 81%, abstenção quando não há resposta 100%, abstenção indevida 0%, 0 maliciosas obedecidas, latência p50/p95 1,7 s / 22,7 s (5 retentativas transitórias), 80,6 mil tokens de entrada. Precision@K 0.15 é artefato do corpus de 11 chunks. A primeira rodada expôs um erro de medição da abstenção (corrigido em `ef7517f0`); baseline `fake` em `docs/evaluation/2026-11-05-fake-provider.*`, run1 em `2026-11-05-gemini-run1.*`. Leitura em `docs/evaluation.md`. |
 
 ### Limitações conhecidas da migração
 
-- Sem rodada real, não há métricas Gemini publicadas; a avaliação em `docs/evaluation/` continua sendo a do provedor `fake`.
 - A Gemini API não devolve tokens por texto nos embeddings: o uso de embeddings é estimado localmente (tiktoken, não o
   tokenizador do Gemini) e sinalizado como estimativa; a geração usa a contagem oficial do provedor.
 - Limites do nível gratuito são por projeto e mudam; o sistema trata 429 com backoff e mensagem honesta, mas não
@@ -272,12 +274,9 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 ## Próximos passos
 
-1. Colocar `GEMINI_API_KEY` no `.env`, definir `EMBEDDING_PROVIDER=gemini` e `LLM_PROVIDER=gemini`,
-   `docker compose up -d --force-recreate api worker`, depois `scripts/check_gemini.py --compose`,
-   `python -m app.rag.embeddings.reindex --dry-run` (documentos indexados com `fake`/OpenAI) e
-   `scripts/smoke_test.py`; registrar o resultado real aqui e no README.
-2. Hospedar a demo pública (TLS + `APP_BASE_URL` + `scripts/seed_demo.py`) e registrar o link no README.
-3. Com chave real, rodar `python -m app.rag.evaluation --judge llm` (respeitando os limites do nível gratuito) e
-   comparar alvos de chunk/`top_k`/limiar.
+1. Hospedar a demo pública (TLS + `APP_BASE_URL` + `scripts/seed_demo.py`, com `GEMINI_API_KEY` só no host) e
+   registrar o link no README.
+2. Com a avaliação real como baseline, comparar alvos de chunk/`top_k`/limiar e avaliar `GEMINI_THINKING_LEVEL`
+   (custo/latência × sustentação), repetindo `python -m app.rag.evaluation --judge llm`.
 4. Evoluções fora do plano original: 2FA, reranker neural, rasterização para OCR, exportação PDF/DOCX.
 5. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).
