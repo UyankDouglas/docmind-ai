@@ -59,14 +59,31 @@ export function ProvidersPanel() {
       </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
-        <StatusItem label="Status" value={ai.data?.configured ? "Configurado" : "Não configurado"} tone={ai.data?.configured ? "success" : "warning"} />
-        <StatusItem label="LLM" value={`${ai.data?.llm_provider ?? "—"} · ${s.ai.llm_model ?? ai.data?.llm_model ?? "padrão"}`} />
-        <StatusItem label="Embeddings" value={`${ai.data?.embedding_provider ?? "—"} · ${s.ai.embedding_model}`} />
+        <StatusItem
+          label="Provedor de IA"
+          value={ai.data?.configured ? (ai.data.provider_label ?? ai.data.llm_provider) : `Não configurado${ai.data?.missing_configuration?.length ? ` (${ai.data.missing_configuration.join(", ")})` : ""}`}
+          tone={ai.data?.configured ? "success" : "warning"}
+        />
+        <StatusItem label="Modelo de respostas" value={s.ai.llm_model ?? ai.data?.llm_model_label ?? ai.data?.llm_model ?? "padrão"} />
+        <StatusItem label="Modelo de embeddings" value={s.ai.embedding_model_label || s.ai.embedding_model} />
       </div>
       {ai.data?.notice ? (
         <Alert variant="info">
           <ShieldAlert />
           <AlertDescription>{ai.data.notice}</AlertDescription>
+        </Alert>
+      ) : null}
+      {s.ai.stale_embedding_documents > 0 ? (
+        <Alert variant="warning" data-testid="stale-embeddings">
+          <ShieldAlert />
+          <AlertDescription>
+            {s.ai.stale_embedding_documents === 1
+              ? "1 documento tem embeddings gerados por outro modelo e está fora da busca semântica"
+              : `${s.ai.stale_embedding_documents} documentos têm embeddings gerados por outro modelo e estão fora da busca semântica`}
+            {" "}até ser reindexado com {s.ai.embedding_model_label || s.ai.embedding_model}. Peça ao operador do servidor para executar
+            <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">python -m app.rag.embeddings.reindex</code>
+            (faz backup antes de substituir os vetores; nenhum documento é excluído).
+          </AlertDescription>
         </Alert>
       ) : null}
 

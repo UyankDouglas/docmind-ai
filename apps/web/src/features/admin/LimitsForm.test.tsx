@@ -11,7 +11,17 @@ export const fullSettings: WorkspaceSettingsFull = {
   retrieval: { mode: "hybrid", top_k: 8, min_similarity: 0.15, max_context_tokens: 6000, rrf_k: 60 },
   limits: { monthly_token_budget: 100000, monthly_cost_budget_usd: null, max_documents: null, max_storage_mb: 512 },
   retention: { conversations_days: 90, analyses_days: null, search_history_days: 30, deleted_documents_days: 7, last_run_at: "2026-11-04T03:15:00Z" },
-  ai: { llm_model: null, allowed_llm_models: ["gpt-4o-mini", "gpt-4.1"], embedding_model: "text-embedding-3-small", ocr_enabled: false, ocr_available: false },
+  ai: {
+    llm_model: null,
+    allowed_llm_models: ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+    embedding_model: "gemini-embedding-001",
+    embedding_provider: "gemini",
+    embedding_provider_label: "Google Gemini",
+    embedding_model_label: "Gemini Embedding 001",
+    stale_embedding_documents: 0,
+    ocr_enabled: false,
+    ocr_available: false,
+  },
 };
 
 describe("parseLimits / parseRetention", () => {

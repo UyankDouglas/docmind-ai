@@ -24,8 +24,9 @@ export function AiStatusCard({ compact = false }: { compact?: boolean }) {
         <AlertTriangle />
         <AlertTitle>Geração com IA indisponível</AlertTitle>
         <AlertDescription>
-          Nenhum provedor de IA está configurado neste ambiente. Uploads e extração continuam funcionando, mas
-          embeddings, pesquisa semântica e respostas no chat exigem uma chave de API configurada no servidor.
+          Nenhum provedor de IA está totalmente configurado neste ambiente. Uploads e extração continuam funcionando, mas
+          embeddings, pesquisa semântica e respostas no chat exigem uma chave de API configurada no servidor
+          {data.missing_configuration?.length ? ` (${data.missing_configuration.join(", ")})` : ""}.
         </AlertDescription>
       </Alert>
     );
@@ -36,11 +37,15 @@ export function AiStatusCard({ compact = false }: { compact?: boolean }) {
       <Sparkles />
       <AlertTitle className="flex flex-wrap items-center gap-2">
         IA configurada
-        <Badge variant="purple">{data.llm_provider}</Badge>
+        <Badge variant="purple">{data.provider_label ?? data.llm_provider}</Badge>
         {!compact ? (
           <>
-            <Badge variant="muted">LLM: {data.llm_model}</Badge>
-            <Badge variant="muted">Embeddings: {data.embedding_model}</Badge>
+            <Badge variant="muted" title={data.llm_model}>
+              Respostas: {data.llm_model_label ?? data.llm_model}
+            </Badge>
+            <Badge variant="muted" title={data.embedding_model}>
+              Embeddings: {data.embedding_model_label ?? data.embedding_model}
+            </Badge>
           </>
         ) : null}
       </AlertTitle>

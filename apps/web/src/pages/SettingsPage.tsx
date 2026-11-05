@@ -183,7 +183,11 @@ export function SettingsPage() {
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <UsageStat label="Perguntas (última hora)" value={`${usage.data.questions_last_hour} / ${usage.data.limits.questions_per_hour}`} />
                 <UsageStat label="Uploads (última hora)" value={`${usage.data.uploads_last_hour} / ${usage.data.limits.uploads_per_hour}`} />
-                <UsageStat label="Tokens no mês" value={(usage.data.prompt_tokens_month + usage.data.completion_tokens_month).toLocaleString("pt-BR")} hint={`${usage.data.prompt_tokens_month.toLocaleString("pt-BR")} entrada · ${usage.data.completion_tokens_month.toLocaleString("pt-BR")} saída`} />
+                <UsageStat
+                  label={usage.data.tokens_estimated ? "Tokens no mês (parte estimada)" : "Tokens no mês"}
+                  value={(usage.data.prompt_tokens_month + usage.data.completion_tokens_month).toLocaleString("pt-BR")}
+                  hint={`${usage.data.prompt_tokens_month.toLocaleString("pt-BR")} entrada · ${usage.data.completion_tokens_month.toLocaleString("pt-BR")} saída${usage.data.tokens_estimated ? " · o provedor não informa a contagem de embeddings; parte é estimada localmente" : ""}`}
+                />
                 <UsageStat
                   label="Custo estimado no mês"
                   value={usage.data.estimated_cost_usd_month == null ? "Sem estimativa" : `US$ ${usage.data.estimated_cost_usd_month.toFixed(4)}`}

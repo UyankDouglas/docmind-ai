@@ -342,6 +342,14 @@ export interface AiStatus {
   llm_provider: string;
   embedding_model: string;
   llm_model: string;
+  /** Nomes legíveis: "Google Gemini", "Gemini 3.5 Flash-Lite", "Gemini Embedding 001" */
+  provider_label: string;
+  llm_provider_label: string;
+  embedding_provider_label: string;
+  llm_model_label: string;
+  embedding_model_label: string;
+  /** Variáveis de ambiente que faltam no servidor (nomes, nunca valores) */
+  missing_configuration: string[];
   external_processing: boolean;
   notice: string;
 }
@@ -358,6 +366,8 @@ export interface Usage {
   uploads_last_hour: number;
   prompt_tokens_month: number;
   completion_tokens_month: number;
+  /** true quando parte dos tokens do mês foi estimada localmente (provedor sem contagem exata) */
+  tokens_estimated?: boolean;
   estimated_cost_usd_month: number | null;
   limits: UsageBaseLimits;
   feedback?: FeedbackSummary;
@@ -513,6 +523,11 @@ export interface WorkspaceAiSettings {
   llm_model: string | null;
   allowed_llm_models: string[];
   embedding_model: string;
+  embedding_provider: string;
+  embedding_provider_label: string;
+  embedding_model_label: string;
+  /** Documentos prontos cujos embeddings vieram de outro modelo (precisam de reindexação) */
+  stale_embedding_documents: number;
   ocr_enabled: boolean;
   ocr_available: boolean;
 }
