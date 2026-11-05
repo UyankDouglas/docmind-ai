@@ -112,6 +112,20 @@ def usage_summary(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> d
         ).where(UsageRecord.workspace_id == workspace_id, UsageRecord.created_at >= month_start)
     ).one()
     prompt_tokens, completion_tokens, cost_sum, cost_rows, total_rows = row
+    # Linhas cujo total de tokens foi estimado localmente (provedor sem contagem por texto):
+    # o painel precisa dizer que o número não é uma medida oficial.
+    estimated_rows = int(
+        db.scalar(
+            select(func.count())
+            .select_from(UsageRecord)
+            .where(
+                UsageRecord.workspace_id == workspace_id,
+                UsageRecord.created_at >= month_start,
+                UsageRecord.extra["tokens_source"].astext == "estimated_local",
+            )
+        )
+        or 0
+    )
     # Só informa custo se TODAS as linhas do mês tiverem estimativa; caso contrário, None.
     cost = (
         float(cost_sum)
@@ -164,6 +178,7 @@ def usage_summary(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> d
         "uploads_last_hour": _count_last_hour(db, user_id, UsageKind.UPLOAD),
         "prompt_tokens_month": int(prompt_tokens),
         "completion_tokens_month": int(completion_tokens),
+        "tokens_estimated": estimated_rows > 0,
         "estimated_cost_usd_month": cost,
         "limits": {
             "questions_per_hour": settings.rate_limit_questions_per_hour,

@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.models.base import utcnow
 from app.providers.embeddings import get_embedding_provider
+from app.providers.errors import ProviderError
 from app.providers.llm import LLMMessage, LLMProvider, LLMResult, get_llm_provider
 from app.rag.generation import build_context, build_messages, validate_citations
 from app.rag.generation.citations import NO_EVIDENCE_ANSWER
@@ -315,14 +316,34 @@ def ask_stream(
         return
 
     # ---- recuperação (configuração do workspace)
-    retrieval = RetrievalService(db, embedding_provider).retrieve(
-        content,
-        scope,
-        mode=rs.mode,
-        top_k=rs.top_k,
-        min_similarity=rs.min_similarity,
-        rrf_k=rs.rrf_k,
-    )
+    try:
+        retrieval = RetrievalService(db, embedding_provider).retrieve(
+            content,
+            scope,
+            mode=rs.mode,
+            top_k=rs.top_k,
+            min_similarity=rs.min_similarity,
+            rrf_k=rs.rrf_k,
+        )
+    except ProviderError as exc:
+        # Falha ao vetorizar a pergunta (quota, credencial, rede): resposta honesta, sem fingir
+        log.warning("retrieval_provider_error", error_code=exc.code, detail=exc.detail)
+        assistant = _store_assistant(
+            db,
+            conv,
+            ctx,
+            exc.message,
+            MessageStatus.ERROR,
+            [],
+            {"provider_error": exc.code},
+            None,
+            started,
+        )
+        db.commit()
+        yield AskEvent("context", [])
+        yield AskEvent("error", {"code": exc.code, "message": exc.message})
+        yield AskEvent("done", assistant)
+        return
     record_usage(
         db,
         workspace_id=ctx.workspace_id,
@@ -334,6 +355,7 @@ def ask_stream(
         latency_ms=retrieval.embedding_latency_ms,
         reference_type="message",
         reference_id=user_msg.id,
+        extra={"tokens_source": retrieval.embedding_tokens_source},
     )
 
     context = build_context(retrieval.chunks, max_tokens=rs.max_context_tokens)
@@ -345,6 +367,7 @@ def ask_stream(
         "max_context_tokens": rs.max_context_tokens,
         "rrf_k": retrieval.rrf_k,
         "embedding_model": retrieval.embedding_model,
+        "stale_documents": retrieval.stale_documents,
         "scoped_documents": [str(d) for d in retrieval.scoped_document_ids],
         "vector_candidates": retrieval.vector_candidates,
         "lexical_candidates": retrieval.lexical_candidates,
@@ -413,6 +436,19 @@ def ask_stream(
                 raise RuntimeError("Stream encerrado sem resultado final")
         else:
             result = llm.generate(messages, max_tokens=settings.max_output_tokens)
+    except ProviderError as exc:
+        # Quota (429), credencial, modelo indisponível, timeout, resposta vazia/bloqueada:
+        # a mensagem já é segura e em pt-BR; o código permite à UI distinguir os casos.
+        log.warning("llm_generation_failed", error_code=exc.code, detail=exc.detail)
+        retrieval_meta["generation_ms"] = int((time.perf_counter() - gen_started) * 1000)
+        retrieval_meta["provider_error"] = exc.code
+        assistant = _store_assistant(
+            db, conv, ctx, exc.message, MessageStatus.ERROR, [], retrieval_meta, None, started
+        )
+        db.commit()
+        yield AskEvent("error", {"code": exc.code, "message": assistant.content})
+        yield AskEvent("done", assistant)
+        return
     except Exception as exc:
         log.warning("llm_generation_failed", error_type=type(exc).__name__)
         retrieval_meta["generation_ms"] = int((time.perf_counter() - gen_started) * 1000)
@@ -534,6 +570,7 @@ def retrieval_evidence(db: Session, ctx: AuthContext, message_id: uuid.UUID) -> 
             "min_similarity": meta.get("min_similarity", settings.retrieval_min_similarity),
             "max_context_tokens": meta.get("max_context_tokens", settings.max_context_tokens),
             "embedding_model": meta.get("embedding_model"),
+            "stale_documents": int(meta.get("stale_documents", 0) or 0),
         },
         "scoped_document_ids": meta.get("scoped_documents", []),
         "candidates": candidates,

@@ -50,7 +50,11 @@ def run_search(
         model=result.embedding_model,
         prompt_tokens=result.embedding_tokens,
         latency_ms=result.total_latency_ms,
-        extra={"results": len(result.chunks), "mode": result.mode},
+        extra={
+            "results": len(result.chunks),
+            "mode": result.mode,
+            "tokens_source": result.embedding_tokens_source,
+        },
     )
     db.add(
         SearchQuery(

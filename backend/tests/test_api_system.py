@@ -24,9 +24,17 @@ def test_ai_settings_requires_auth_and_never_exposes_keys(client):
         "llm_provider",
         "embedding_model",
         "llm_model",
+        "provider_label",
+        "llm_provider_label",
+        "embedding_provider_label",
+        "llm_model_label",
+        "embedding_model_label",
+        "missing_configuration",
         "external_processing",
         "notice",
     }
+    assert body["provider_label"] == "Provedor determinístico (testes)"
+    assert body["missing_configuration"] == []
     assert "key" not in str(body).lower()
 
 

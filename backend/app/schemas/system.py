@@ -9,6 +9,14 @@ class AiStatus(BaseModel):
     llm_provider: str
     embedding_model: str
     llm_model: str
+    # Nomes legíveis ("Google Gemini", "Gemini 3.5 Flash-Lite", "Gemini Embedding 001")
+    provider_label: str
+    llm_provider_label: str
+    embedding_provider_label: str
+    llm_model_label: str
+    embedding_model_label: str
+    # Variáveis de ambiente que faltam (nomes, nunca valores), ex.: ["GEMINI_API_KEY"]
+    missing_configuration: list[str] = []
     external_processing: bool
     notice: str
 
@@ -71,6 +79,11 @@ class WorkspaceAiOut(BaseModel):
     llm_model: str | None
     allowed_llm_models: list[str]
     embedding_model: str
+    embedding_provider: str = "fake"
+    embedding_provider_label: str = ""
+    embedding_model_label: str = ""
+    # Documentos prontos cujos embeddings foram gerados por outro modelo (precisam de reindexação)
+    stale_embedding_documents: int = 0
     ocr_enabled: bool
     ocr_available: bool
 
@@ -121,6 +134,8 @@ class UsageOut(BaseModel):
     uploads_last_hour: int
     prompt_tokens_month: int
     completion_tokens_month: int
+    # True quando parte dos tokens do mês foi estimada localmente (provedor sem contagem exata)
+    tokens_estimated: bool = False
     estimated_cost_usd_month: float | None
     limits: UsageLimits
     feedback: FeedbackSummary

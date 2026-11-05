@@ -45,9 +45,8 @@ def process_document(self: Task, document_id: str, job_id: str) -> dict:
             countdown=countdown,
         )
         if self.request.retries >= _MAX_RETRIES:
-            _mark_failed(
-                doc_uuid, job_uuid, "Falha persistente ao contatar o provedor de embeddings."
-            )
+            reason = exc.user_message or "Falha persistente ao contatar o provedor de embeddings."
+            _mark_failed(doc_uuid, job_uuid, f"{reason} Reprocesse o documento mais tarde.")
             return {"status": "failed", "error": "max_retries"}
         raise self.retry(exc=exc, countdown=countdown) from exc
 

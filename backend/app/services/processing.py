@@ -30,6 +30,7 @@ from app.models import (
 )
 from app.models.base import utcnow
 from app.providers.embeddings import EmbeddingProvider
+from app.providers.errors import ProviderError
 from app.providers.storage import ObjectStorage
 from app.rag.chunking import chunk_document
 from app.rag.embeddings import EmbeddingIndexer
@@ -40,7 +41,14 @@ log = get_logger(__name__)
 
 
 class TransientProcessingError(Exception):
-    """Erro transitório (rede/provedor) — o worker pode tentar novamente com backoff."""
+    """Erro transitório (rede/provedor) — o worker pode tentar novamente com backoff.
+
+    `user_message` é a explicação segura (pt-BR) a gravar no documento se as tentativas acabarem
+    (ex.: limite do provedor atingido)."""
+
+    def __init__(self, reason: str, user_message: str | None = None) -> None:
+        super().__init__(reason)
+        self.user_message = user_message
 
 
 class ProcessingCancelledError(Exception):
@@ -252,7 +260,9 @@ class DocumentPipeline:
                 )
             except Exception as exc:
                 if _is_transient(exc):
-                    raise TransientProcessingError(str(type(exc).__name__)) from exc
+                    raise TransientProcessingError(
+                        type(exc).__name__, getattr(exc, "message", None)
+                    ) from exc
                 raise
             self.db.commit()
             self._check_cancel(job, doc)
@@ -304,6 +314,7 @@ class DocumentPipeline:
                 "chunks": len(drafts),
                 "embedded": stats.chunks_embedded,
                 "embedding_tokens": stats.prompt_tokens,
+                "tokens_source": stats.tokens_source,
                 "duration_ms": duration_ms,
                 "warnings": len(extracted.warnings),
             }
@@ -318,7 +329,7 @@ class DocumentPipeline:
                 latency_ms=stats.latency_ms,
                 reference_type="document",
                 reference_id=doc.id,
-                extra={"chunks": stats.chunks_embedded},
+                extra={"chunks": stats.chunks_embedded, "tokens_source": stats.tokens_source},
             )
             self.db.commit()
             log.info("document_ready", document_id=str(doc.id), chunks=len(drafts), ms=duration_ms)
@@ -347,6 +358,17 @@ class DocumentPipeline:
 
         except ExtractionError as exc:
             return self._fail(doc, job, str(exc), started, code=exc.code)
+
+        except ProviderError as exc:
+            # Não transitório (credencial inválida, modelo indisponível, requisição recusada):
+            # o documento fica `failed` com a causa; nunca `ready` sem embeddings.
+            log.warning(
+                "pipeline_provider_error",
+                document_id=str(document_id),
+                error_code=exc.code,
+                detail=exc.detail,
+            )
+            return self._fail(doc, job, exc.message, started, code=exc.code)
 
         except Exception as exc:
             log.exception(
@@ -386,6 +408,10 @@ def _cancel_flag(db: Session, job_id: uuid.UUID) -> bool:
 
 
 def _is_transient(exc: Exception) -> bool:
+    # Erros de provedor normalizados declaram se vale a pena tentar de novo (429, 5xx, timeout)
+    retryable = getattr(exc, "retryable", None)
+    if isinstance(retryable, bool):
+        return retryable
     name = type(exc).__name__
     transient_names = {
         "APIConnectionError",
