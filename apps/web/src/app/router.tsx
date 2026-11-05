@@ -9,6 +9,7 @@ import { DocumentsPage } from "@/pages/DocumentsPage";
 import { DocumentViewerPage } from "@/pages/DocumentViewerPage";
 import { ChatPage } from "@/pages/ChatPage";
 import { SearchPage } from "@/pages/SearchPage";
+import { ComparePage } from "@/pages/ComparePage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 
@@ -38,6 +39,7 @@ export const router = createBrowserRouter([
           { path: "/chat", element: <ChatPage /> },
           { path: "/chat/:conversationId", element: <ChatPage /> },
           { path: "/search", element: <SearchPage /> },
+          { path: "/compare", element: <ComparePage /> },
           { path: "/settings", element: <SettingsPage /> },
         ],
       },

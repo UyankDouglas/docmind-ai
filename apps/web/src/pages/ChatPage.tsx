@@ -1,8 +1,11 @@
 import * as React from "react";
 import { useNavigate, useParams } from "react-router";
-import { AlertTriangle, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { AlertTriangle, Download, FileJson, FileText, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { downloadConversationExport } from "@/features/analyses/export";
+import type { ExportFormat } from "@/types/api";
 import { useToast } from "@/components/ui/toast";
 import { useMe } from "@/features/auth/hooks";
 import { useAiStatus } from "@/features/settings/hooks";
@@ -150,6 +153,19 @@ export function ChatPage() {
 
   const aiUnavailable = ai.data ? !ai.data.configured : false;
 
+  const [exporting, setExporting] = React.useState(false);
+  const exportConversation = async (format: ExportFormat) => {
+    if (!conversationId) return;
+    setExporting(true);
+    try {
+      await downloadConversationExport(conversationId, format, `conversa-${conversationId.slice(0, 8)}`);
+    } catch (e) {
+      toast({ kind: "error", title: "Não foi possível exportar a conversa", description: errorMessage(e) });
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0">
       {/* Lista de conversas */}
@@ -184,6 +200,23 @@ export function ChatPage() {
             {conversationId ? (conversation.data?.title || "Conversa") : "Nova conversa"}
           </h1>
           <ScopePicker value={scope} onChange={setScope} disabled={update.isPending} className="max-w-[18rem]" />
+          {conversationId && (conversation.data?.message_count ?? 0) > 0 ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" loading={exporting} aria-label="Exportar conversa">
+                  <Download />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => void exportConversation("md")}>
+                  <FileText /> Exportar Markdown (.md)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void exportConversation("json")}>
+                  <FileJson /> Exportar JSON (.json)
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
 
         {aiUnavailable ? (

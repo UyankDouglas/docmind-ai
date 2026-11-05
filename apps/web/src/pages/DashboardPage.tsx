@@ -11,6 +11,10 @@ import { useDocuments } from "@/features/documents/hooks";
 import { useConversations } from "@/features/chat/hooks";
 import { useCollections } from "@/features/collections/hooks";
 import { CollectionColorDot } from "@/features/collections/CollectionsPanel";
+import { useAnalyses } from "@/features/analyses/hooks";
+import { AnalysisStatusBadge } from "@/features/analyses/AnalysisResultView";
+import { analysisTypeLabel } from "@/features/analyses/labels";
+import { analysisHref } from "@/features/analyses/links";
 import { documentKind, KIND_LABELS, type DocumentKind } from "@/lib/documents";
 import { useMe } from "@/features/auth/hooks";
 import { isProcessingStatus } from "@/types/api";
@@ -50,6 +54,8 @@ export function DashboardPage() {
     { pdf: 0, docx: 0, txt: 0, other: 0 },
   );
   const recentCollections = (collections.data ?? []).slice(0, 5);
+  const analyses = useAnalyses({ page: 1, page_size: 5 });
+  const recentAnalyses = analyses.data?.items ?? [];
 
   return (
     <div>
@@ -141,6 +147,36 @@ export function DashboardPage() {
         </Card>
 
         <div className="space-y-6">
+        <Card data-testid="recent-analyses">
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <div>
+              <CardTitle>Análises recentes</CardTitle>
+              <CardDescription>Resumos, tópicos e comparações geradas.</CardDescription>
+            </div>
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/compare">
+                Comparar <ArrowRight />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {analyses.isPending ? null : recentAnalyses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhuma análise ainda. Abra um documento e use a aba Análises.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {recentAnalyses.map((a) => (
+                  <li key={a.id} className="flex items-center gap-2 py-2 text-sm">
+                    <Link to={analysisHref(a)} className="min-w-0 flex-1 truncate font-medium hover:underline" title={a.title}>
+                      {a.title}
+                    </Link>
+                    <span className="hidden text-xs text-muted-foreground sm:block">{analysisTypeLabel(a)}</span>
+                    <AnalysisStatusBadge status={a.status} className="px-1.5 py-0 text-[10px]" />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader className="flex-row items-center justify-between space-y-0">
             <div>

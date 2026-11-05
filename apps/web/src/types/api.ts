@@ -382,3 +382,79 @@ export interface SendMessageResponse {
 export interface ApiErrorBody {
   error: { code: string; message: string; details?: unknown };
 }
+
+// ---------------------------------------------------------------- Fase 4 — Inteligência documental
+
+export type AnalysisKind = "summary" | "comparison" | "topics" | "questions";
+export type SummaryType = "general" | "executive" | "topics" | "obligations" | "faq" | "attention";
+export type AnalysisStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type AnalysisStrategy = "single_pass" | "hierarchical" | "retrieval";
+
+export const ANALYSIS_ACTIVE_STATUSES: readonly AnalysisStatus[] = ["queued", "running"];
+
+export function isAnalysisActive(status: AnalysisStatus): boolean {
+  return ANALYSIS_ACTIVE_STATUSES.includes(status);
+}
+
+export interface AnalysisSource {
+  index: number;
+  chunk_id: string | null;
+  document_id: string | null;
+  document_name: string;
+  document_label: string | null;
+  location_type: LocationType;
+  location_label: string;
+  snippet: string;
+}
+
+export interface AnalysisCoverage {
+  chunks_used: number;
+  chunks_total: number;
+  tokens_used: number;
+  strategy: AnalysisStrategy;
+  parts: number;
+  complete: boolean;
+}
+
+export interface AnalysisTopic {
+  title: string;
+  description: string;
+  source_indices: number[];
+}
+
+export interface AnalysisResult {
+  content: string;
+  sources: AnalysisSource[];
+  coverage: AnalysisCoverage;
+  limitations: string[];
+  topics?: AnalysisTopic[];
+  questions?: string[];
+}
+
+export interface AnalysisDocumentRef {
+  id: string;
+  name: string;
+  label: string | null;
+}
+
+export interface Analysis {
+  id: string;
+  kind: AnalysisKind;
+  summary_type: SummaryType | null;
+  status: AnalysisStatus;
+  title: string;
+  document_ids: string[];
+  documents: AnalysisDocumentRef[];
+  question: string | null;
+  result: AnalysisResult | null;
+  error_message: string | null;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  latency_ms: number | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export type ExportFormat = "md" | "json";

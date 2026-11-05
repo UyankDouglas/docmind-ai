@@ -116,6 +116,25 @@ versão final; assim o streaming nunca exibe uma citação que o backend não co
 `GET /messages/{id}/retrieval` expõe o snapshot gravado em `retrieval_meta`: modo, parâmetros, candidatos com
 scores, quais entraram no contexto e quais foram citados, tokens de contexto, latências e uso.
 
+## 5b. Análises documentais (Fase 4)
+
+Resumos, comparações, tópicos e perguntas sugeridas rodam no worker (`analysis.run`) e nunca são
+apresentados sem **fontes** e **cobertura/limitações** geradas pelo backend.
+
+- **Resumos** (6 tipos): todos os chunks da versão ativa viram evidências `[n]`. Se cabem no orçamento de
+  contexto do workspace → passagem única; senão **hierárquico**: cada parte é resumida preservando os
+  marcadores `[n]` globais e uma síntese final consolida as partes (nunca se resume só o começo). `coverage`
+  registra `strategy`, `parts`, `chunks_used/chunks_total` e `complete`.
+- **Comparação** (2–5 documentos, rótulos A–E): completa quando o total cabe no orçamento; caso contrário
+  recupera os `ANALYSIS_COMPARE_TOP_K` trechos mais relevantes por documento para a pergunta orientadora e
+  declara explicitamente que não é exaustiva (`complete=false`).
+- **Tópicos** reutilizam o resumo "Principais tópicos" e são parseados em cards com índices de fonte.
+- **Perguntas sugeridas** usam uma amostra (início/meio/fim) dos trechos e são reutilizadas enquanto a versão
+  de indexação do documento não mudar.
+- Teto de entrada por análise (`ANALYSIS_MAX_INPUT_TOKENS`, 422 `analysis_too_large`), citações validadas e
+  limitações automáticas (hierárquico, recuperação parcial, marcadores inválidos removidos, provedor de testes).
+- Exportação em Markdown/JSON de análises e conversas, sempre com a lista de fontes.
+
 ## 6. Observabilidade
 
 Cada mensagem guarda `retrieval_meta` (chunks recuperados, scores, modelo, tokens de contexto,

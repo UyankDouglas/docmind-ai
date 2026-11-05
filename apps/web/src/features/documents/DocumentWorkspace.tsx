@@ -12,6 +12,13 @@ import { cn, formatBytes, formatDateTime } from "@/lib/utils";
 import { useChunk, useDocument, useDocumentChunks } from "./hooks";
 import type { HighlightMatch } from "./pdf/highlight";
 import { VersionsPanel } from "./VersionsPanel";
+import type { AnalysisSource } from "@/types/api";
+
+const DocumentAnalysesPanel = React.lazy(() =>
+  import("@/features/analyses/DocumentAnalysesPanel").then((m) => ({ default: m.DocumentAnalysesPanel })),
+);
+
+type AsideTab = "details" | "analyses";
 
 const PdfViewer = React.lazy(() => import("./pdf/PdfViewer").then((m) => ({ default: m.PdfViewer })));
 const TextDocumentViewer = React.lazy(() =>
@@ -28,18 +35,29 @@ interface Props {
   embedded?: boolean;
   headerExtra?: React.ReactNode;
   className?: string;
+  /** mostra a aba "Análises" (resumos, tópicos, perguntas) no painel lateral */
+  analyses?: boolean;
+  /** aba inicial do painel lateral */
+  initialTab?: AsideTab;
 }
 
 /**
  * Visualizador de documento: PDF.js para PDF, texto por seções para DOCX/TXT;
  * painel de metadados/trechos/versões à direita. Reutilizado pela página /documents/:id e pelo chat.
  */
-export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onChunkChange, embedded = false, headerExtra, className }: Props) {
+export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onChunkChange, embedded = false, headerExtra, className, analyses = false, initialTab = "details" }: Props) {
   const doc = useDocument(documentId);
   const pdf = doc.data ? isPdf(doc.data.mime_type) : true;
   const chunks = useDocumentChunks(documentId, pdf ? page : undefined);
   const activeChunk = useChunk(chunkId);
   const [panelOpen, setPanelOpen] = React.useState(!embedded);
+  const [asideTab, setAsideTab] = React.useState<AsideTab>(analyses ? initialTab : "details");
+  const openSource = React.useCallback(
+    (s: AnalysisSource) => {
+      if (s.chunk_id) onChunkChange?.(s.chunk_id);
+    },
+    [onChunkChange],
+  );
   const [highlight, setHighlight] = React.useState<HighlightMatch | null | undefined>(undefined);
   const [textHighlightFound, setTextHighlightFound] = React.useState<boolean | undefined>(undefined);
   const [activeSection, setActiveSection] = React.useState<number | null>(null);
@@ -128,7 +146,34 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
         </div>
 
         {panelOpen ? (
-          <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-border bg-card" aria-label="Detalhes do documento">
+          <aside className={cn("flex shrink-0 flex-col overflow-y-auto border-l border-border bg-card", asideTab === "analyses" ? "w-[26rem]" : "w-80")} aria-label={asideTab === "analyses" ? "Análises do documento" : "Detalhes do documento"}>
+            {analyses ? (
+              <div role="tablist" aria-label="Painel lateral" className="grid shrink-0 grid-cols-2 border-b border-border">
+                {(
+                  [
+                    ["details", "Detalhes"],
+                    ["analyses", "Análises"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    role="tab"
+                    type="button"
+                    aria-selected={asideTab === key}
+                    onClick={() => setAsideTab(key)}
+                    className={cn("px-3 py-2 text-xs font-medium transition-colors", asideTab === key ? "border-b-2 border-primary text-primary" : "text-muted-foreground hover:text-foreground")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {analyses && asideTab === "analyses" ? (
+              <React.Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Carregando análises…</div>}>
+                <DocumentAnalysesPanel documentId={documentId} documentReady={doc.data?.status === "ready"} onSourceClick={openSource} activeChunkId={chunkId} className="min-h-0 flex-1" />
+              </React.Suspense>
+            ) : (
+              <>
             {activeChunk.data ? (
               <section className="border-b border-border p-4">
                 <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -252,6 +297,8 @@ export function DocumentWorkspace({ documentId, page, onPageChange, chunkId, onC
             </section>
             <VersionsPanel documentId={documentId} currentVersion={doc.data?.indexing_version} />
             <Separator />
+              </>
+            )}
           </aside>
         ) : null}
       </div>

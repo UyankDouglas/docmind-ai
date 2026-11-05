@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
+  GitCompareArrows,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -36,6 +37,7 @@ const NAV = [
   { to: "/documents", label: "Documentos", icon: FolderOpen },
   { to: "/chat", label: "Chat com Documentos", icon: MessageSquareText },
   { to: "/search", label: "Pesquisa", icon: Search },
+  { to: "/compare", label: "Comparar", icon: GitCompareArrows },
   { to: "/settings", label: "Configurações", icon: Settings },
 ];
 

@@ -48,6 +48,8 @@ export function DocumentViewerPage() {
       onPageChange={setPage}
       chunkId={chunkId}
       onChunkChange={setChunk}
+      analyses
+      initialTab={params.get("tab") === "analyses" ? "analyses" : "details"}
       headerExtra={
         <Button variant="ghost" size="sm" asChild className="order-first">
           <Link to="/documents" aria-label="Voltar à biblioteca">
