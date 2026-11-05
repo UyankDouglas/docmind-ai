@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { errorMessage, isApiError } from "@/services/api";
+import { useInstance } from "@/features/instance/hooks";
 import { useLogin } from "./hooks";
 import { safeNext } from "./RequireAuth";
 
@@ -19,6 +20,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export function LoginForm() {
+  const instance = useInstance();
   const login = useLogin();
   const navigate = useNavigate();
   const location = useLocation();
@@ -93,12 +95,14 @@ export function LoginForm() {
           Esqueci minha senha
         </Link>
       </p>
-      <p className="text-center text-sm text-muted-foreground">
-        Ainda não tem conta?{" "}
-        <Link to={nextParam ? `/register?next=${encodeURIComponent(nextParam)}` : "/register"} className="font-medium text-primary hover:underline">
-          Criar conta
-        </Link>
-      </p>
+      {instance.data?.registration_enabled === false ? null : (
+        <p className="text-center text-sm text-muted-foreground">
+          Ainda não tem conta?{" "}
+          <Link to={nextParam ? `/register?next=${encodeURIComponent(nextParam)}` : "/register"} className="font-medium text-primary hover:underline">
+            Criar conta
+          </Link>
+        </p>
+      )}
     </form>
   );
 }

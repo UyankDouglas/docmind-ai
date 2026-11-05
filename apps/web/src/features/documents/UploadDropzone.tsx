@@ -9,7 +9,8 @@ import { cn, formatBytes } from "@/lib/utils";
 import { documentKind, KIND_ICONS } from "@/lib/documents";
 import { errorMessage } from "@/services/api";
 import { useDocumentTags, useUploadDocument } from "./hooks";
-import { ACCEPT_ATTR, MAX_CONCURRENT_UPLOADS, MAX_UPLOAD_BYTES, runWithConcurrency, validateFile } from "./uploadQueue";
+import { useUsage } from "@/features/settings/hooks";
+import { ACCEPT_ATTR, MAX_CONCURRENT_UPLOADS, maxUploadBytes, runWithConcurrency, validateFile } from "./uploadQueue";
 
 export { MAX_UPLOAD_BYTES, validateFile } from "./uploadQueue";
 
@@ -49,6 +50,9 @@ export function UploadDropzone({ className, compact = false, defaultCollectionId
   const upload = useUploadDocument();
   const collections = useCollections();
   const knownTags = useDocumentTags();
+  // O limite vem do servidor (MAX_UPLOAD_MB); a demonstração pública usa um valor menor que o padrão.
+  const usage = useUsage();
+  const maxBytes = maxUploadBytes(usage.data?.limits?.max_upload_mb);
 
   const patch = (id: number, data: Partial<QueueItem>) =>
     setQueue((q) => q.map((x) => (x.id === id ? { ...x, ...data } : x)));
@@ -56,7 +60,7 @@ export function UploadDropzone({ className, compact = false, defaultCollectionId
   const processFiles = React.useCallback(
     async (files: FileList | File[]) => {
       const items: QueueItem[] = Array.from(files).map((file) => {
-        const err = validateFile(file);
+        const err = validateFile(file, maxBytes);
         return { id: ++seq, file, state: err ? "error" : "pending", error: err ?? undefined };
       });
       setQueue((q) => [...items, ...q].slice(0, 50));
@@ -72,7 +76,7 @@ export function UploadDropzone({ className, compact = false, defaultCollectionId
         }
       });
     },
-    [upload, collectionId, tags],
+    [upload, collectionId, tags, maxBytes],
   );
 
   const onDrop = (e: React.DragEvent) => {
@@ -115,7 +119,7 @@ export function UploadDropzone({ className, compact = false, defaultCollectionId
         </div>
         <p className="text-sm font-medium">{dragging ? "Solte para enviar" : "Arraste arquivos aqui ou clique para selecionar"}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          PDF, DOCX ou TXT · até {formatBytes(MAX_UPLOAD_BYTES)} por arquivo · até {MAX_CONCURRENT_UPLOADS} envios simultâneos.
+          PDF, DOCX ou TXT · até {formatBytes(maxBytes)} por arquivo · até {MAX_CONCURRENT_UPLOADS} envios simultâneos.
           Os limites também são validados pelo servidor.
         </p>
         <input

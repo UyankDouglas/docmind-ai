@@ -31,7 +31,28 @@ describe("LoginForm", () => {
     await userEvent.click(screen.getByRole("button", { name: /entrar/i }));
     expect(await screen.findByText("Informe um e-mail válido.")).toBeInTheDocument();
     expect(screen.getByText("Informe sua senha.")).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Só a configuração pública da instância é consultada; o login não é enviado
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith("/auth/login"))).toBe(false);
+  });
+
+  it("oculta o link de cadastro quando a instância não aceita novos cadastros", async () => {
+    mockFetch((url) =>
+      url.endsWith("/instance")
+        ? jsonResponse({ demo_mode: true, registration_enabled: false, demo_samples_available: false, demo_notice: null })
+        : jsonResponse({}, { status: 404 }),
+    );
+    setup();
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Criar conta" })).not.toBeInTheDocument());
+  });
+
+  it("mostra o link de cadastro por padrão", async () => {
+    mockFetch((url) =>
+      url.endsWith("/instance")
+        ? jsonResponse({ demo_mode: false, registration_enabled: true, demo_samples_available: false, demo_notice: null })
+        : jsonResponse({}, { status: 404 }),
+    );
+    setup();
+    expect(await screen.findByRole("link", { name: "Criar conta" })).toBeInTheDocument();
   });
 
   it("envia credenciais e redireciona ao autenticar", async () => {

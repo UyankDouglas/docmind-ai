@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { CardsSkeleton } from "@/components/Skeletons";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadSamplesButton } from "@/features/instance/LoadSamplesButton";
 import { AiStatusCard } from "@/features/settings/AiStatusCard";
 import { useDocuments } from "@/features/documents/hooks";
 import { useConversations } from "@/features/chat/hooks";
@@ -124,9 +125,12 @@ export function DashboardPage() {
                 description="Envie um PDF, DOCX ou TXT para começar."
                 className="py-8"
                 action={
-                  <Button asChild size="sm">
-                    <Link to="/documents">Enviar documento</Link>
-                  </Button>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button asChild size="sm">
+                      <Link to="/documents">Enviar documento</Link>
+                    </Button>
+                    <LoadSamplesButton size="sm" />
+                  </div>
                 }
               />
             ) : (

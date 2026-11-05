@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/EmptyState";
+import { LoadSamplesButton } from "@/features/instance/LoadSamplesButton";
 import { ErrorState } from "@/components/ErrorState";
 import { TableSkeleton } from "@/components/Skeletons";
 import { STATUS_LABELS } from "@/components/StatusBadge";
@@ -274,9 +275,12 @@ export function DocumentList({ canManage, onUploadClick, collectionId = null }: 
                 Limpar filtros
               </Button>
             ) : onUploadClick ? (
-              <Button variant="gradient" onClick={onUploadClick}>
-                Enviar documento
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="gradient" onClick={onUploadClick}>
+                  Enviar documento
+                </Button>
+                {collectionId ? null : <LoadSamplesButton />}
+              </div>
             ) : undefined
           }
         />

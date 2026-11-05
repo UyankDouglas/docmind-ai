@@ -2,6 +2,7 @@ import { Outlet } from "react-router";
 import { FileSearch, Quote, ShieldCheck, Sparkles } from "lucide-react";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { DemoBanner } from "@/features/instance/DemoBanner";
 
 const highlights = [
   { icon: FileSearch, title: "Busca por significado", text: "Encontre informações mesmo quando a pergunta usa termos diferentes do documento." },
@@ -54,6 +55,7 @@ export function AuthLayout() {
         </div>
         <div className="flex flex-1 items-center justify-center px-4 pb-12">
           <div className="w-full max-w-md animate-slide-up">
+            <DemoBanner className="mb-6" />
             <Outlet />
           </div>
         </div>

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { jsonResponse, mockFetch, renderWithProviders } from "@/test/utils";
 import { MAX_UPLOAD_BYTES, UploadDropzone, validateFile } from "./UploadDropzone";
-import { runWithConcurrency } from "./uploadQueue";
+import { maxUploadBytes, runWithConcurrency } from "./uploadQueue";
 
 describe("validateFile", () => {
   it("aceita PDF, DOCX e TXT e rejeita outros formatos", () => {
@@ -16,6 +16,14 @@ describe("validateFile", () => {
     expect(validateFile(new File([], "vazio.pdf"))).toMatch(/vazio/i);
     const big = new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "grande.pdf", { type: "application/pdf" });
     expect(validateFile(big)).toMatch(/excede o limite/i);
+  });
+  it("usa o limite informado pelo servidor quando existe", () => {
+    expect(maxUploadBytes(5)).toBe(5 * 1024 * 1024);
+    expect(maxUploadBytes(undefined)).toBe(MAX_UPLOAD_BYTES);
+    expect(maxUploadBytes(0)).toBe(MAX_UPLOAD_BYTES);
+    const sixMb = new File([new Uint8Array(6 * 1024 * 1024)], "medio.pdf", { type: "application/pdf" });
+    expect(validateFile(sixMb)).toBeNull();
+    expect(validateFile(sixMb, maxUploadBytes(5))).toMatch(/excede o limite de 5/i);
   });
 });
 

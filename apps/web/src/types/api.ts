@@ -336,6 +336,21 @@ export interface Conversation extends ConversationSummary {
   messages: Message[];
 }
 
+/** Configuração pública da instância (GET /instance, sem autenticação). */
+export interface InstanceInfo {
+  demo_mode: boolean;
+  registration_enabled: boolean;
+  demo_samples_available: boolean;
+  demo_notice: string | null;
+}
+
+export interface DemoSamplesResult {
+  collection_id: string | null;
+  loaded: string[];
+  skipped: string[];
+  stopped_reason: string | null;
+}
+
 export interface AiStatus {
   configured: boolean;
   embedding_provider: string;

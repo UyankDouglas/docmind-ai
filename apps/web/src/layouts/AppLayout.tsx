@@ -17,6 +17,7 @@ import {
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { WorkspaceSwitcher } from "@/features/workspaces/WorkspaceSwitcher";
+import { DemoBanner } from "@/features/instance/DemoBanner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -215,6 +216,7 @@ export function AppLayout() {
             </DropdownMenu>
           </div>
         </header>
+        <DemoBanner dismissible />
 
         <main
           id="conteudo"

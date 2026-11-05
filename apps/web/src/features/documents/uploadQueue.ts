@@ -11,13 +11,18 @@ export function fileExtension(name: string): string {
   return m ? m[0].toLowerCase() : "";
 }
 
-export function validateFile(file: File): string | null {
+/** Limite de upload em bytes informado pelo servidor (`/usage`), com o padrão como reserva. */
+export function maxUploadBytes(maxUploadMb: number | null | undefined): number {
+  return maxUploadMb && maxUploadMb > 0 ? maxUploadMb * 1024 * 1024 : MAX_UPLOAD_BYTES;
+}
+
+export function validateFile(file: File, maxBytes: number = MAX_UPLOAD_BYTES): string | null {
   const ext = fileExtension(file.name);
   if (!(ACCEPTED_EXTENSIONS as readonly string[]).includes(ext)) {
     return "Formato não suportado. Envie PDF, DOCX ou TXT.";
   }
   if (file.size === 0) return "O arquivo está vazio.";
-  if (file.size > MAX_UPLOAD_BYTES) return `O arquivo excede o limite de ${formatBytes(MAX_UPLOAD_BYTES)}.`;
+  if (file.size > maxBytes) return `O arquivo excede o limite de ${formatBytes(maxBytes)}.`;
   return null;
 }
 
