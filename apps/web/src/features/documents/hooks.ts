@@ -27,8 +27,8 @@ export function useDocuments(params: ListDocumentsParams) {
 /** Lista "todos" os documentos prontos (para seletores). */
 export function useReadyDocuments() {
   return useQuery({
-    queryKey: documentKeys.list({ status: "ready", page: 1, page_size: 200 }),
-    queryFn: ({ signal }) => documentsApi.list({ status: "ready", page: 1, page_size: 200 }, signal),
+    queryKey: documentKeys.list({ status: "ready", page: 1, page_size: 100 }),
+    queryFn: ({ signal }) => documentsApi.list({ status: "ready", page: 1, page_size: 100 }, signal),
     select: (d) => d.items,
   });
 }
