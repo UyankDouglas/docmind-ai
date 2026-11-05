@@ -42,3 +42,6 @@ Thumbs.db
 
 # Visual Studio
 .vs/
+
+# Backups da demo (deploy/backup.sh)
+backups/

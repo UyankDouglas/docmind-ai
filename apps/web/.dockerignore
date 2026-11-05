@@ -1,0 +1,8 @@
+# Contexto de build da imagem web: dependências e artefatos locais ficam de fora
+# (o node_modules do host, sobretudo no Windows, quebraria o pnpm install da imagem).
+node_modules
+dist
+dist-ssr
+coverage
+*.local
+.vite

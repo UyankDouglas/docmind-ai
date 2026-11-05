@@ -1,5 +1,14 @@
-# DocMind AI — composição de produção (imagens construídas, sem volumes de código)
+# DocMind AI — composição de produção (imagens construídas, sem volumes de código).
+# Uso: deploy/bootstrap.sh (servidor novo) ou docker compose -f docker-compose.prod.yml up -d --build
+# Só o serviço web (Caddy) publica portas; PostgreSQL, Redis, MinIO e a API ficam na rede interna.
 name: docmind-prod
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
 
 services:
   postgres:
@@ -13,6 +22,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    <<: *logging
 
   redis:
     image: redis:7-alpine
@@ -25,9 +35,10 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+    <<: *logging
 
   minio:
-    # minio/minio saiu do Docker Hub; bitnamilegacy/minio é uma build MinIO (2025-05) congelada, adequada para dev.
+    # minio/minio saiu do Docker Hub; bitnamilegacy/minio é uma build MinIO (2025-05) congelada.
     image: bitnamilegacy/minio:latest
     restart: unless-stopped
     env_file: .env
@@ -38,6 +49,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    <<: *logging
 
   api:
     build:
@@ -48,11 +60,25 @@ services:
     environment:
       APP_ENV: production
       COOKIE_SECURE: "true"
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"
+      # Documentos fictícios do modo demonstração e scripts operacionais (check_gemini, seed_demo)
+      DEMO_SAMPLES_DIR: /samples
+      PYTHONPATH: /app
+    # --proxy-headers: o Caddy informa o esquema (https) e o IP real do cliente
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips '*'"
+    volumes:
+      - ./samples:/samples:ro
+      - ./scripts:/scripts:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    <<: *logging
 
   worker:
     build:
@@ -62,13 +88,15 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
+    # -B: Celery beat embutido (retenção diária). Mantenha UMA réplica deste serviço.
     command: celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=50 -B --schedule=/tmp/celerybeat-schedule
     depends_on:
-      api: { condition: service_started }
+      api: { condition: service_healthy }
     deploy:
       resources:
         limits:
           memory: 1g
+    <<: *logging
 
   web:
     build:
@@ -76,12 +104,24 @@ services:
       dockerfile: ../../docker/web.Dockerfile
       target: prod
     restart: unless-stopped
+    environment:
+      # Domínio público => HTTPS automático (Let's Encrypt). Vazio => HTTP simples na porta 80.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
-      - "${WEB_PORT_HOST:-8080}:80"
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # Certificados e chaves ACME: perdê-los força nova emissão (sujeita a limites do Let's Encrypt)
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
-      - api
+      api: { condition: service_healthy }
+    <<: *logging
 
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  caddy_data:
+  caddy_config:

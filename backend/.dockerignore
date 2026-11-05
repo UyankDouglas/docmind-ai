@@ -1,0 +1,13 @@
+# Contexto de build da imagem da API/worker: ambiente virtual e caches locais ficam de fora
+# (as dependências são instaladas na imagem em /opt/venv).
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage
+htmlcov
+data
+.env
+.env.*

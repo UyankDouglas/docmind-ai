@@ -1,5 +1,8 @@
-# Caddy — produção: serve o frontend e faz proxy da API
-:80 {
+# Caddy — produção: serve o frontend e faz proxy da API.
+# SITE_ADDRESS vazio => ":80" (HTTP simples, atrás de outro proxy ou para teste local).
+# SITE_ADDRESS=demo.seu-dominio.com => HTTPS automático (Let's Encrypt), redirecionamento de HTTP
+# para HTTPS e renovação do certificado; exige DNS apontando para o servidor e portas 80/443 abertas.
+{$SITE_ADDRESS::80} {
 	encode gzip zstd
 
 	handle /api/* {
@@ -13,6 +16,8 @@
 	}
 
 	header {
+		# Ignorado pelos navegadores em HTTP simples; vale quando o site é servido via HTTPS
+		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin

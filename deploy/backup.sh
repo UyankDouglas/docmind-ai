@@ -19,6 +19,8 @@ chmod 700 "$DEST"
 umask 077
 
 echo "[$STAMP] pg_dump"
+# Aspas simples de propósito: as variáveis expandem dentro do contêiner do PostgreSQL.
+# shellcheck disable=SC2016
 "${COMPOSE[@]}" exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom' \
   > "$DEST/docmind-db-$STAMP.dump"
 
@@ -26,5 +28,5 @@ echo "[$STAMP] arquivos do MinIO"
 "${COMPOSE[@]}" exec -T minio tar -C /bitnami/minio/data -czf - . > "$DEST/docmind-files-$STAMP.tar.gz"
 
 find "$DEST" -maxdepth 1 -name 'docmind-*' -type f -mtime "+$KEEP_DAYS" -delete
-ls -lh "$DEST" | tail -n 6
+du -h "$DEST/docmind-db-$STAMP.dump" "$DEST/docmind-files-$STAMP.tar.gz"
 echo "[$STAMP] backup concluído em $DEST"
