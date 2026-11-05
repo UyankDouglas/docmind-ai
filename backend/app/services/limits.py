@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import UsageLimitExceededError
 from app.models import Document, UsageRecord, Workspace
 from app.models.base import utcnow
@@ -119,8 +120,46 @@ def budget_status(db: Session, workspace: Workspace) -> BudgetStatus:
     )
 
 
+GLOBAL_DAILY_LIMIT_MESSAGE = (
+    "O limite diário de uso de IA desta instância foi atingido. Tente novamente amanhã."
+)
+
+
+def default_workspace_limits() -> dict[str, Any]:
+    """Limites gravados em workspaces criados pelo cadastro (NEW_WORKSPACE_*; vazio = sem limite)."""
+    defaults = {
+        "monthly_token_budget": settings.new_workspace_monthly_token_budget,
+        "max_documents": settings.new_workspace_max_documents,
+        "max_storage_mb": settings.new_workspace_max_storage_mb,
+    }
+    return validate_limits_patch({k: v for k, v in defaults.items() if v is not None})
+
+
+def global_tokens_today(db: Session) -> int:
+    """Tokens (entrada + saída) registrados hoje (UTC) em todos os workspaces da instância."""
+    day_start = utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    total = db.scalar(
+        select(
+            func.coalesce(func.sum(UsageRecord.prompt_tokens), 0)
+            + func.coalesce(func.sum(UsageRecord.completion_tokens), 0)
+        ).where(UsageRecord.created_at >= day_start)
+    )
+    return int(total or 0)
+
+
+def enforce_global_daily_budget(db: Session) -> None:
+    """Teto diário compartilhado (GLOBAL_DAILY_TOKEN_BUDGET): protege a quota da chave do provedor,
+    que é a mesma para todos os workspaces — essencial numa demo com cadastro aberto."""
+    cap = settings.global_daily_token_budget
+    if not cap:
+        return
+    if global_tokens_today(db) >= cap:
+        raise UsageLimitExceededError(GLOBAL_DAILY_LIMIT_MESSAGE, code="daily_budget_exceeded")
+
+
 def enforce_budget(db: Session, workspace: Workspace) -> None:
     """Bloqueia perguntas, pesquisas e análises quando o teto mensal foi atingido."""
+    enforce_global_daily_budget(db)
     status = budget_status(db, workspace)
     if status.blocked:
         raise UsageLimitExceededError(
@@ -129,6 +168,8 @@ def enforce_budget(db: Session, workspace: Workspace) -> None:
 
 
 def enforce_document_limits(db: Session, workspace: Workspace, *, incoming_bytes: int) -> None:
+    # O processamento gera embeddings pelo provedor: o teto diário global também vale para uploads.
+    enforce_global_daily_budget(db)
     limits = get_limits(workspace)
     if not (limits.max_documents or limits.max_storage_mb):
         return

@@ -145,3 +145,19 @@ class UsageOut(BaseModel):
     storage_mb: float = 0.0
     blocked: bool = False
     blocked_reason: str | None = None
+
+
+class InstanceInfo(BaseModel):
+    """Configuração pública da instância (sem autenticação)."""
+
+    demo_mode: bool
+    registration_enabled: bool
+    demo_samples_available: bool
+    demo_notice: str | None = None
+
+
+class DemoSamplesOut(BaseModel):
+    collection_id: str | None
+    loaded: list[str]
+    skipped: list[str]
+    stopped_reason: str | None = None

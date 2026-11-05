@@ -6,6 +6,7 @@ from app.api.v1 import (
     auth,
     chat,
     collections,
+    demo,
     documents,
     search,
     system,
@@ -22,5 +23,6 @@ api_router.include_router(documents.router)
 api_router.include_router(collections.router)
 api_router.include_router(search.router)
 api_router.include_router(chat.router)
+api_router.include_router(demo.router)
 
 __all__ = ["api_router"]

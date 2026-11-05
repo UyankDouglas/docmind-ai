@@ -187,10 +187,12 @@ def create_upload(
     upload: UploadInput,
     *,
     ip_address: str | None = None,
+    check_concurrency: bool = True,
 ) -> Document:
     require_write_role(ctx)
     enforce_upload_limit(db, ctx.user.id)
-    _enforce_concurrent_uploads(db, ctx)
+    if check_concurrency:
+        _enforce_concurrent_uploads(db, ctx)
     collection = get_collection(db, ctx, upload.collection_id) if upload.collection_id else None
     tags = normalize_tags(upload.tags)
 

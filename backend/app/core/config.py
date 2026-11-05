@@ -144,6 +144,25 @@ class Settings(BaseSettings):
     rate_limit_questions_per_hour: int = 60
     rate_limit_uploads_per_hour: int = 30
 
+    # --- Demonstração pública (docs/deploy.md, "Demo pública") ---
+    # Exibe o aviso de demonstração e habilita o carregamento dos documentos fictícios de exemplo.
+    demo_mode: bool = False
+    # Permite criar contas pelo formulário público (convites continuam funcionando quando False).
+    registration_enabled: bool = True
+    # Limites gravados em cada workspace criado no cadastro (vazio = sem limite). O administrador
+    # do workspace pode alterá-los depois em Administração -> Limites e custos.
+    new_workspace_max_documents: int | None = None
+    new_workspace_max_storage_mb: int | None = None
+    new_workspace_monthly_token_budget: int | None = None
+    # Retenção (em dias) gravada em workspaces novos: conversas, análises, histórico de pesquisa
+    # e purga de documentos excluídos. Vazio = não aplicar.
+    new_workspace_retention_days: int | None = None
+    # Teto diário de tokens somando TODOS os workspaces da instância (protege a quota da chave do
+    # provedor, que é compartilhada). Vazio = sem teto. Zera à meia-noite UTC.
+    global_daily_token_budget: int | None = None
+    # Pasta com os documentos fictícios de exemplo (montada a partir de samples/ no Compose de produção).
+    demo_samples_dir: str = "/app/demo-samples"
+
     @field_validator("cors_origins")
     @classmethod
     def _strip_origins(cls, v: str) -> str:
@@ -162,6 +181,23 @@ class Settings(BaseSettings):
                 f"GEMINI_THINKING_LEVEL inválido: {value}. Use {', '.join(GEMINI_THINKING_LEVELS)}."
             )
         return value
+
+    @field_validator(
+        "new_workspace_max_documents",
+        "new_workspace_max_storage_mb",
+        "new_workspace_monthly_token_budget",
+        "new_workspace_retention_days",
+        "global_daily_token_budget",
+        "price_embedding_per_1m",
+        "price_llm_input_per_1m",
+        "price_llm_output_per_1m",
+        mode="before",
+    )
+    @classmethod
+    def _blank_number_is_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator("gemini_api_key", "openai_api_key", mode="before")
     @classmethod

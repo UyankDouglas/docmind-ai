@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, ForbiddenError, UnauthorizedError
 from app.core.security import (
     generate_csrf_token,
     generate_session_token,
@@ -65,6 +65,23 @@ def _unique_slug(db: Session, base: str) -> str:
     return slug
 
 
+def new_workspace_settings() -> dict:
+    """Configurações iniciais de um workspace criado no cadastro, incluindo os limites e a retenção
+    padrão da instância (NEW_WORKSPACE_*), usados para conter abuso numa demo pública."""
+    from app.services.limits import default_workspace_limits
+    from app.services.retention import RETENTION_KEYS, validate_retention_patch
+
+    ws_settings: dict = {"external_ai_enabled": True}
+    limits = default_workspace_limits()
+    if limits:
+        ws_settings["limits"] = limits
+    if settings.new_workspace_retention_days:
+        ws_settings["retention"] = validate_retention_patch(
+            dict.fromkeys(RETENTION_KEYS, settings.new_workspace_retention_days)
+        )
+    return ws_settings
+
+
 def register_user(
     db: Session,
     *,
@@ -74,6 +91,11 @@ def register_user(
     ip_address: str | None = None,
     user_agent: str | None = None,
 ) -> tuple[AuthContext, IssuedSession]:
+    if not settings.registration_enabled:
+        raise ForbiddenError(
+            "O cadastro público está desativado nesta instância. Peça um convite a um administrador.",
+            code="registration_disabled",
+        )
     email = email.strip().lower()
     if db.scalar(select(User.id).where(User.email == email)):
         raise ConflictError("Já existe uma conta com este e-mail.", code="email_in_use")
@@ -86,7 +108,7 @@ def register_user(
         name=f"Workspace de {name.split()[0]}",
         slug=_unique_slug(db, _slugify(name.split()[0])),
         owner_id=user.id,
-        settings={"external_ai_enabled": True},
+        settings=new_workspace_settings(),
     )
     db.add(workspace)
     db.flush()
