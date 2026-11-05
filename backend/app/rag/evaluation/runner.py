@@ -46,6 +46,7 @@ from app.providers.llm import LLMMessage, LLMProvider, get_llm_provider
 from app.providers.storage import ObjectStorage, get_storage
 from app.rag.evaluation.dataset import DATASET_VERSION, QUESTIONS, EvalQuestion, dataset_hash
 from app.rag.evaluation.metrics import precision_at_k, recall_at_k, reciprocal_rank
+from app.rag.generation import validate_citations
 from app.rag.retrieval import RetrievalScope, RetrievalService
 from app.services import chat as chat_service
 from app.services.auth import AuthContext
@@ -398,7 +399,14 @@ class EvaluationRunner:
                 for cid in cited_ids
                 if self.db.get(DocumentChunk, cid)
             ]
-            abstained = assistant.status == MessageStatus.NO_EVIDENCE
+            # Abster-se = status `no_evidence` OU resposta que abre com a frase de abstenção e só
+            # acrescenta "o que foi encontrado parcialmente" com citações (como o prompt pede); nesse
+            # segundo caso o chat mantém status `ok` porque há citações válidas, mas o modelo não
+            # inventou uma resposta — contar isso como falha de abstenção mediria a coisa errada.
+            abstained = (
+                assistant.status == MessageStatus.NO_EVIDENCE
+                or validate_citations(assistant.content, {}).looks_like_abstention
+            )
             valid = all(cid in set(retrieved_ids) for cid in cited_ids)
             supported = (
                 None

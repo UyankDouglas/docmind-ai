@@ -39,3 +39,6 @@ Thumbs.db
 
 # pnpm store criado por containers
 .pnpm-store/
+
+# Visual Studio
+.vs/
