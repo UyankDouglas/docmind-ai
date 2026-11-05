@@ -79,8 +79,9 @@ a Fase 6 (avaliação) os ajustará com dados. Índice HNSW será avaliado quand
 ### Busca híbrida (Fase 3)
 
 - **Léxico**: coluna gerada `document_chunks.text_search = to_tsvector('portuguese', text)` com índice GIN;
-  consulta via `websearch_to_tsquery('portuguese', q)`, ordenação por `ts_rank_cd` e destaque com `ts_headline`
-  (`<mark>`). Mesmos filtros de isolamento da busca vetorial.
+  consulta via `websearch_to_tsquery('portuguese', q)` com **AND** entre termos e, se nada casar, **OR** como
+  fallback (perguntas em linguagem natural raramente têm todos os lexemas no mesmo trecho); ordenação por
+  `ts_rank_cd` e destaque com `ts_headline` (`<mark>`). Mesmos filtros de isolamento da busca vetorial.
 - **Fusão**: Reciprocal Rank Fusion (`rag/retrieval/fusion.py`), `score = Σ 1/(k + rank)`, `k = 60` por padrão.
   Cada resultado informa `vector_score`, `lexical_score` (normalizado), `vector_rank` e `lexical_rank`, para que a
   interface explique por que o trecho apareceu. No modo híbrido buscam-se `2 × top_k` candidatos por ranking.

@@ -78,12 +78,19 @@ def audit_export(
 
 
 # ----------------------------------------------------------------------------- convites (acesso pelo token)
+def _mask_email(email: str) -> str:
+    """Página pública do convite: não expõe o e-mail completo a quem só tem o link."""
+    local, _, domain = email.partition("@")
+    shown = local[:2] if len(local) > 2 else local[:1]
+    return f"{shown}{'*' * max(2, len(local) - len(shown))}@{domain}"
+
+
 @router.get("/invitations/{token}", response_model=InvitationPublicOut)
 def invitation_public(token: str, db: Session = Depends(get_db)) -> InvitationPublicOut:
     inv, workspace = members_service.get_invitation_by_token(db, token)
     return InvitationPublicOut(
         workspace_name=workspace.name,
-        email=inv.email,
+        email=_mask_email(inv.email),
         role=inv.role,
         expires_at=inv.expires_at,
         status=inv.status,

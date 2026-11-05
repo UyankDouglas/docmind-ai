@@ -68,7 +68,7 @@ def test_invite_accept_switch_roles_and_remove(client, mailbox):
     # Página pública do convite
     pub = client.get(f"/api/v1/invitations/{token}").json()
     assert (
-        pub["email"] == "bruno@example.com"
+        pub["email"] == "br***@example.com"
         and pub["role"] == "editor"
         and pub["status"] == "pending"
     )

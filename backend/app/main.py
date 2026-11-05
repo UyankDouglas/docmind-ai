@@ -20,6 +20,12 @@ log = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_logging()
+    if settings.is_production and settings.secret_key.startswith("change-me"):
+        raise RuntimeError(
+            "SECRET_KEY padrão não pode ser usada em produção. Gere uma chave aleatória."
+        )
+    if settings.is_production and not settings.cookie_secure:
+        log.warning("cookie_secure_disabled_in_production")
     log.info(
         "startup",
         env=settings.app_env,

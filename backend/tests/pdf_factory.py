@@ -156,3 +156,32 @@ def many_pages_pdf(pages: int) -> bytes:
     return build_pdf(
         [[f"Página {i + 1} de um documento longo."] for i in range(pages)], title="Longo"
     )
+
+
+ADITIVO_PAGES: list[list[str]] = [
+    [
+        "PRIMEIRO ADITIVO AO CONTRATO DE PRESTAÇÃO DE SERVIÇOS DE TECNOLOGIA",
+        "Pelo presente instrumento, Aurora Sistemas Ltda. (CONTRATADA) e Horizonte Logística S.A. (CONTRATANTE) "
+        "resolvem alterar o contrato original firmado em 15 de fevereiro de 2026. Documento sintético para "
+        "demonstração do DocMind AI; não representa nenhum contrato real.",
+        "CLÁUSULA 1 - ALTERAÇÃO DO VALOR",
+        "O valor mensal passa a ser de R$ 52.000,00 (cinquenta e dois mil reais) a partir de 1º de setembro de 2026, "
+        "mantido o vencimento no dia 10 de cada mês.",
+    ],
+    [
+        "CLÁUSULA 2 - ALTERAÇÃO DO PRAZO DE RESCISÃO",
+        "O aviso prévio para rescisão sem ônus passa de 45 (quarenta e cinco) para 60 (sessenta) dias. "
+        "A multa por cancelamento sem aviso prévio permanece equivalente a duas mensalidades.",
+        "CLÁUSULA 3 - NÍVEL DE SERVIÇO",
+        "O tempo de resposta a incidentes críticos passa a ser de 1 (uma) hora, mantido o prazo de resolução de 8 horas úteis.",
+    ],
+    [
+        "CLÁUSULA 4 - DISPOSIÇÕES FINAIS",
+        "Permanecem inalteradas as demais cláusulas do contrato original, inclusive o foro de Curitiba.",
+        "Curitiba, 20 de agosto de 2026. Assinam as partes.",
+    ],
+]
+
+
+def aditivo_pdf() -> bytes:
+    return build_pdf(ADITIVO_PAGES, title="Primeiro Aditivo ao Contrato")

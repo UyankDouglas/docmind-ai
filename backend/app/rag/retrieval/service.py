@@ -12,6 +12,7 @@ O `workspace_id` vem sempre da sessão autenticada — nunca do cliente.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -31,6 +32,22 @@ log = get_logger(__name__)
 
 TS_CONFIG = "portuguese"
 MODES = ("vector", "hybrid")
+_WORD_RE = re.compile(r"[\wÀ-ÿ]+", re.UNICODE)
+
+
+def lexical_query(question: str) -> str:
+    """Converte uma pergunta em linguagem natural em consulta FTS com OR entre termos.
+
+    `websearch_to_tsquery` usa AND por padrão, o que raramente casa com perguntas completas
+    ("Em que dia vence o pagamento?" exige todos os lexemas no mesmo trecho). Com OR, o `ts_rank_cd`
+    continua favorecendo trechos que contêm mais termos, e a fusão RRF pondera com o ranking vetorial.
+    Frases entre aspas são preservadas como termos exatos.
+    """
+    quoted = re.findall(r'"([^"]+)"', question)
+    rest = re.sub(r'"[^"]+"', " ", question)
+    words = [w for w in _WORD_RE.findall(rest) if len(w) > 1]
+    parts = [f'"{q.strip()}"' for q in quoted if q.strip()] + words
+    return " or ".join(parts) if parts else question
 
 
 @dataclass(slots=True)
@@ -190,7 +207,18 @@ class RetrievalService:
     def _lexical_candidates(
         self, query: str, workspace_id: uuid.UUID, doc_ids: list[uuid.UUID], limit: int
     ) -> list[tuple[DocumentChunk, str, str, float, str | None]]:
-        tsquery = func.websearch_to_tsquery(TS_CONFIG, query)
+        """Primeiro exige todos os termos (AND, mais preciso); se nada casar, relaxa para OR."""
+        rows = self._lexical_rows(query, workspace_id, doc_ids, limit)
+        if not rows:
+            relaxed = lexical_query(query)
+            if relaxed != query:
+                rows = self._lexical_rows(relaxed, workspace_id, doc_ids, limit)
+        return rows
+
+    def _lexical_rows(
+        self, query_text: str, workspace_id: uuid.UUID, doc_ids: list[uuid.UUID], limit: int
+    ) -> list[tuple[DocumentChunk, str, str, float, str | None]]:
+        tsquery = func.websearch_to_tsquery(TS_CONFIG, query_text)
         rank = func.ts_rank_cd(DocumentChunk.text_search, tsquery)
         headline = func.ts_headline(
             TS_CONFIG,
