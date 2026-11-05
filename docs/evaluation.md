@@ -32,9 +32,16 @@ cd backend
 DATABASE_URL=postgresql+psycopg://docmind:docmind@localhost:5432/docmind STORAGE_BACKEND=memory \
 EMBEDDING_PROVIDER=fake LLM_PROVIDER=fake uv run python -m app.rag.evaluation --out ../docs/evaluation
 
-# com provedor real e juiz LLM (gera custo; requer OPENAI_API_KEY)
-EMBEDDING_PROVIDER=openai LLM_PROVIDER=openai uv run python -m app.rag.evaluation --judge llm --out ../docs/evaluation
+# com provedor real e juiz LLM (consome quota/custo; requer GEMINI_API_KEY — ou OPENAI_API_KEY com *_PROVIDER=openai)
+EMBEDDING_PROVIDER=gemini LLM_PROVIDER=gemini uv run python -m app.rag.evaluation --judge llm --out ../docs/evaluation
 ```
+
+> **Gemini (05/11/2026)**: os adaptadores Google Gemini foram implementados e testados com SDK simulado, mas a
+> avaliação com provedor real ainda **não foi executada** (sem `GEMINI_API_KEY` no ambiente no momento da
+> migração). Os números abaixo continuam sendo os da execução com provedor `fake`; nenhum resultado Gemini é
+> publicado até que a rodada real exista. Atenção ao nível gratuito: 43 perguntas + indexação de 5 documentos
+> cabem nos limites diários típicos, mas podem esbarrar no limite por minuto — o runner respeita as retentativas
+> com backoff do provedor.
 
 O relatório registra versão do pipeline, commit, dataset (versão + hash), provedores/modelos, parâmetros de
 recuperação e chunking, juiz, documentos, benchmark, métricas agregadas, limitações e a tabela por pergunta.

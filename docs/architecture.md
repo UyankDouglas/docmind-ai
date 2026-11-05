@@ -25,7 +25,7 @@ responsabilidades, não processos.
 | HTTP | `backend/app/api/` | Validação de entrada (Pydantic), autenticação/CSRF, serialização. Sem regra de negócio. |
 | Serviços | `backend/app/services/` | Regras de negócio: auth, documentos, pipeline de processamento, chat, uso, auditoria. |
 | RAG | `backend/app/rag/` | `extraction/`, `chunking/`, `embeddings/`, `retrieval/`, `generation/`, `evaluation/`. Cada etapa é independente e testável. |
-| Provedores | `backend/app/providers/` | Adaptadores: `storage` (MinIO/local/memória), `embeddings` (OpenAI/fake), `llm` (OpenAI/fake), `tokens`, `redis_client`. |
+| Provedores | `backend/app/providers/` | Adaptadores: `storage` (MinIO/local/memória), `embeddings` e `llm` (interfaces), `gemini` (Google Gemini API via `google-genai`: embeddings com tipos de tarefa + geração/streaming), OpenAI e `fake` (testes), `errors` (erros de provedor normalizados: quota, credencial, modelo, timeout, bloqueio), `tokens`, `redis_client`. A chave do provedor existe só no ambiente de `api` e `worker`. |
 | Modelos | `backend/app/models/` | SQLAlchemy 2 (UUIDs, timestamps, soft delete). Migrations em `backend/migrations/`. |
 | Workers | `backend/app/workers/` | Celery: tarefa `documents.process` com retentativas e backoff. |
 

@@ -3,7 +3,7 @@
 ## Desenvolvimento com Docker Compose (recomendado)
 
 ```bash
-cp .env.example .env            # ajuste SECRET_KEY e OPENAI_API_KEY
+cp .env.example .env            # ajuste SECRET_KEY e GEMINI_API_KEY (ver "Google Gemini" abaixo)
 docker compose up --build
 ```
 
@@ -41,8 +41,49 @@ Quando o Docker não está disponível, é possível rodar tudo localmente:
    cd apps/web && pnpm install && pnpm dev
    ```
 
-Sem `OPENAI_API_KEY`, use `EMBEDDING_PROVIDER=fake` e `LLM_PROVIDER=fake`: a interface informa que o
+Sem chave de provedor, use `EMBEDDING_PROVIDER=fake` e `LLM_PROVIDER=fake`: a interface informa que o
 provedor é determinístico de testes (as respostas não são geradas por um LLM real).
+
+## Google Gemini: chave, nível gratuito e reindexação
+
+1. **Criar a chave**: acesse o [Google AI Studio](https://aistudio.google.com/app/apikey), crie um projeto (ou use
+   um existente) e gere uma API key. O nível gratuito não exige cartão.
+2. **Configurar** no `.env` (lido por `api` e `worker` via `env_file`; nunca no Dockerfile, no frontend ou no git):
+   ```
+   EMBEDDING_PROVIDER=gemini
+   LLM_PROVIDER=gemini
+   GEMINI_API_KEY=<sua chave>
+   EMBEDDING_MODEL=gemini-embedding-001
+   EMBEDDING_DIMENSIONS=1536
+   LLM_MODEL=gemini-3.5-flash-lite
+   LLM_ALLOWED_MODELS=gemini-3.5-flash-lite
+   ```
+   Depois `docker compose up -d --force-recreate api worker`. A chave aparece nos logs apenas como "presente".
+3. **Validar** sem imprimir a chave: `docker compose exec api python ../scripts/check_gemini.py` (ou
+   `cd backend && uv run python ../scripts/check_gemini.py --compose` no host). O script confere chave, modelos
+   disponíveis para a conta, um embedding de 1536 dimensões e uma geração curta; sem chave, sai com código 2 e
+   marca a verificação como **pendente**.
+4. **Nível gratuito**: os limites (requisições por minuto/dia, tokens por minuto) são por projeto e visíveis no
+   AI Studio; quando esgotam, a API responde `429 RESOURCE_EXHAUSTED`. O DocMind retenta com backoff
+   exponencial e jitter (`LLM_MAX_RETRIES`), depois informa "limite do provedor atingido; tente mais tarde":
+   perguntas ficam com `status=error`, documentos em processamento são reagendados pelo worker (30 s → 4 min)
+   e, se persistir, ficam `failed` com a orientação de reprocessar. Nada migra para modelo pago nem ativa
+   faturamento. Segundo a página de preços da Gemini API, no nível gratuito o conteúdo enviado **pode ser usado
+   pelo Google para melhorar seus produtos** (no pago, não); a interface exibe esse aviso e o workspace pode
+   desativar o processamento externo. Custos só são estimados se `PRICE_*_PER_1M` forem configurados com os
+   preços reais do seu plano.
+5. **Documentos indexados com outro modelo** (ex.: OpenAI antes da migração) não são comparados com perguntas
+   vetorizadas pelo Gemini; eles continuam na busca textual e o painel de provedores mostra quantos precisam de
+   reindexação. Para regenerar (com backup automático, sem excluir nada):
+   ```bash
+   docker compose exec api python -m app.rag.embeddings.reindex --dry-run
+   docker compose exec api python -m app.rag.embeddings.reindex --yes
+   # recuperação, se necessário:
+   docker compose exec api python -m app.rag.embeddings.reindex --list-backups
+   docker compose exec api python -m app.rag.embeddings.reindex --restore <BACKUP_ID>
+   ```
+   A reindexação consome quota de embeddings; em lotes grandes use `--limit N` e repita (`--include-failed`
+   retoma documentos interrompidos por quota).
 
 ## Testes
 
@@ -63,6 +104,8 @@ root; frontend servido por **Caddy** com proxy de `/api/*` para a API).
 Checklist mínimo:
 
 - `APP_ENV=production`, `SECRET_KEY` aleatório, `COOKIE_SECURE=true`, `CORS_ORIGINS` com o domínio real.
+- `GEMINI_API_KEY` apenas no `.env` do host (ou no gerenciador de segredos), com `EMBEDDING_PROVIDER=gemini` e
+  `LLM_PROVIDER=gemini`; confira com `scripts/check_gemini.py --compose` que `api` e `worker` a recebem.
 - Senhas fortes para PostgreSQL e MinIO; bucket privado.
 - TLS: coloque o Caddy (ou outro proxy) com certificado na frente do serviço `web`.
 - Backups do volume do PostgreSQL e do MinIO; retenção definida.
@@ -79,8 +122,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 ## Demo pública com documentos fictícios
 
 1. Suba a stack de produção em um host com TLS (Caddy na frente) e `APP_BASE_URL` apontando para o domínio.
-2. Configure `OPENAI_API_KEY` (ou mantenha `EMBEDDING_PROVIDER=fake`/`LLM_PROVIDER=fake` para uma demo sem custo —
-   a interface informa que as respostas não vêm de um modelo real).
+2. Configure `GEMINI_API_KEY` com provedores `gemini` (o nível gratuito costuma bastar para uma demo, com os limites
+   do projeto) ou mantenha `EMBEDDING_PROVIDER=fake`/`LLM_PROVIDER=fake` para uma demo sem chamadas externas —
+   a interface informa que as respostas não vêm de um modelo real.
 3. Gere os documentos fictícios e semeie a conta de demonstração:
    ```bash
    cd backend && uv run python ../scripts/generate_samples.py

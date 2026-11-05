@@ -113,11 +113,16 @@ interface ConversationSummary {
 interface Conversation extends ConversationSummary { messages: Message[] }
 
 interface AiStatus {
-  configured: boolean;                  // provedor real configurado?
-  embedding_provider: string; llm_provider: string;
+  configured: boolean;                  // embeddings E geração prontos (cada provedor com sua chave; fake conta)
+  embedding_provider: string; llm_provider: string;   // "gemini" | "openai" | "fake"
   embedding_model: string; llm_model: string;
+  provider_label: string;               // "Google Gemini" (ou combinado quando diferem)
+  llm_provider_label: string; embedding_provider_label: string;
+  llm_model_label: string;              // "Gemini 3.5 Flash-Lite"
+  embedding_model_label: string;        // "Gemini Embedding 001"
+  missing_configuration: string[];      // nomes de variáveis ausentes, ex.: ["GEMINI_API_KEY"] (nunca valores)
   external_processing: boolean;         // trechos podem ser enviados a provedor externo
-  notice: string;                       // aviso de privacidade em pt-BR
+  notice: string;                       // aviso de privacidade em pt-BR (inclui uso de dados no nível gratuito do Gemini)
 }
 
 interface Usage {
@@ -481,7 +486,13 @@ interface WorkspaceSettings {
   retrieval: RetrievalSettings;
   limits: { monthly_token_budget: number | null; monthly_cost_budget_usd: number | null; max_documents: number | null; max_storage_mb: number | null };
   retention: { conversations_days: number | null; analyses_days: number | null; search_history_days: number | null; deleted_documents_days: number | null; last_run_at: string | null };
-  ai: { llm_model: string | null; allowed_llm_models: string[]; embedding_model: string; ocr_enabled: boolean; ocr_available: boolean };
+  ai: {
+    llm_model: string | null; allowed_llm_models: string[];
+    embedding_model: string; embedding_provider: string;          // modelo/provedor que a busca vetorial usa
+    embedding_provider_label: string; embedding_model_label: string;
+    stale_embedding_documents: number;                              // prontos, mas indexados com outro modelo (reindexar)
+    ocr_enabled: boolean; ocr_available: boolean;
+  };
 }
 
 interface AuditEntry {
@@ -540,3 +551,17 @@ Regras de limites: quando `monthly_token_budget`/`monthly_cost_budget_usd` é at
 síncrono ainda persiste a pergunta com `status = "ai_unavailable"`? **Não**: a requisição é recusada antes de persistir.
 `max_documents`/`max_storage_mb` bloqueiam novos uploads (429). A retenção roda diariamente (Celery beat) e no
 `POST .../retention/run`; documentos excluídos (soft delete) são purgados do storage após `deleted_documents_days`.
+
+## Adições da migração para Google Gemini (05/11/2026)
+
+- `AiStatus` ganhou rótulos legíveis (`provider_label`, `*_model_label`) e `missing_configuration`; `configured`
+  só é verdadeiro quando embeddings **e** geração têm chave (ou são `fake`).
+- `Usage.tokens_estimated: boolean` — parte dos tokens do mês foi estimada localmente (a Gemini API não informa
+  tokens por texto nos embeddings); a UI rotula "parte estimada".
+- `RetrievalEvidence.params.stale_documents: number` — documentos do escopo que ficaram fora da busca vetorial por
+  terem embeddings de outro modelo.
+- Erros de provedor (503, formato padrão `{ error: { code, message } }`), também emitidos como evento `error` no
+  SSE antes do `done`, com a mensagem persistida na resposta do assistente (`status = "error"`):
+  `ai_quota_exceeded` (429 do provedor; "tente mais tarde"), `ai_auth_failed`, `ai_model_unavailable`,
+  `ai_invalid_request`, `ai_timeout`, `ai_temporarily_unavailable`, `ai_empty_response`, `ai_response_blocked`.
+  `ai_unavailable` continua significando "provedor não configurado".

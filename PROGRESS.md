@@ -5,9 +5,69 @@
 
 ## Fase atual
 
-**Fase 6 — Avaliação e Produção: concluída** (05/11/2026). Todas as seis fases planejadas estão implementadas e
-validadas com a stack Docker. Pendências que dependem do autor: executar com `OPENAI_API_KEY` real (e registrar a
-avaliação com `--judge llm`) e hospedar a demo pública.
+**Migração para Google Gemini: implementada e testada com SDK simulado** (05/11/2026), sobre as seis fases
+concluídas. O provedor padrão passou a ser a Gemini API (`gemini-embedding-001` em 1536 dimensões +
+`gemini-3.5-flash-lite`, SDK oficial `google-genai`), com OpenAI e `fake` preservados. **Pendente, depende do
+autor**: colocar `GEMINI_API_KEY` no `.env` e trocar `EMBEDDING_PROVIDER`/`LLM_PROVIDER` para `gemini`; a validação
+real (`scripts/check_gemini.py`), o fluxo completo com um PDF de `samples/` e a avaliação `--judge llm` ficam
+**pendentes** até lá (nada foi simulado como sucesso). Também pendente: hospedar a demo pública.
+
+## Migração OpenAI → Google Gemini (05/11/2026)
+
+- [x] **Dependência**: `google-genai` 2.34 (`uv add "google-genai>=1.0,<3"`, lockfile atualizado); biblioteca legada não usada.
+- [x] **Configuração** (`core/config.py`): provedores `gemini|openai|fake`, `GEMINI_API_KEY` só no backend, modelos
+  padrão por provedor (`EMBEDDING_MODEL`/`LLM_MODEL` vazios assumem os do provedor), `GEMINI_THINKING_LEVEL`,
+  `GEMINI_APPLY_TEMPERATURE`, `PROVIDER_RETRY_*`. `ai_configured` exige chave de **cada** provedor selecionado;
+  `missing_configuration` nomeia a variável ausente; mensagens de status não citam mais só a OpenAI.
+- [x] **`GeminiEmbeddingProvider`** (`providers/gemini.py`): `embed_content` com `task_type` `RETRIEVAL_DOCUMENT`
+  (chunks) / `RETRIEVAL_QUERY` (perguntas), `output_dimensionality=1536`, normalização L2 dos vetores truncados,
+  validação de dimensão, lotes ≤ 100, latência/modelo/uso; tokens marcados `estimated_local` quando a API não os informa.
+- [x] **`GeminiLLMProvider`**: `generate()` e `stream()` reais (`generate_content` / `generate_content_stream`),
+  `system` → `system_instruction`, `user`/`assistant` → `user`/`model` (documentos continuam na mensagem do usuário),
+  `max_output_tokens`, temperatura opcional, `thinking_level` opcional, uso (`prompt`, `candidates + thoughts`),
+  `finish_reason`, bloqueios de segurança e respostas vazias tratados; `LLMResult` final no stream.
+- [x] **Erros e limites** (`providers/errors.py`): `ProviderError` (503, código próprio, mensagem pt-BR segura) para
+  429 `RESOURCE_EXHAUSTED`, credencial inválida (400 "API key"/401/403), modelo indisponível (404), timeout, rede,
+  5xx, resposta vazia, bloqueio; backoff exponencial com jitter limitado por `LLM_MAX_RETRIES` (SDK sem retentativas
+  internas, para uma política única). Chat grava `status=error` com a mensagem ("limite do provedor atingido… tente
+  mais tarde"), SSE emite `error` + `done`, busca devolve 503; worker reagenda transitórios e marca `failed` com a
+  causa para credencial/modelo; nunca migra para modelo pago.
+- [x] **Compatibilidade pgvector**: coluna `vector(1536)` e migrations intactas (`alembic check` sem drift); busca
+  vetorial filtra por modelo+dimensão do provedor ativo; `stale_documents` em `RetrievalResult`/`retrieval_meta`/
+  evidências e `ai.stale_embedding_documents` nas configurações do workspace (aviso no painel de provedores).
+- [x] **Reindexação segura** (`rag/embeddings/reindex.py`, `python -m app.rag.embeddings.reindex`): `--dry-run`,
+  backup em `embedding_records_backup` + `--restore`, substituição **no lugar** respeitando `chunk_id` único
+  (`EmbeddingIndexer` agora atualiza registros de outro modelo), documento `embedding` → `ready` só com todos os
+  chunks cobertos, `failed` com causa em falha (vetores antigos preservados por rollback), parada em quota/credencial,
+  `--include-failed`, `DocumentVersion.embedding_model` e `ProcessingJob` atualizados. Nunca roda na inicialização.
+- [x] **Worker/Compose**: `api` e `worker` já recebem `.env` por `env_file` (`GEMINI_API_KEY` incluída quando definida);
+  chave fora do Dockerfile, do frontend e do git; `scripts/check_gemini.py --compose` confere a presença sem imprimir.
+- [x] **UI (mínima)**: `AiStatus` com `provider_label`/`*_model_label`/`missing_configuration` ("Google Gemini",
+  "Gemini 3.5 Flash-Lite", "Gemini Embedding 001"), aviso de uso de dados no nível gratuito do Gemini no texto de
+  privacidade, aviso de documentos pendentes de reindexação em Administração → Provedores, "Tokens no mês (parte
+  estimada)" quando aplicável.
+- [x] **Docs**: `.env.example`, README, `backend/README.md`, `docs/architecture.md`, `docs/rag-pipeline.md`,
+  `docs/deploy.md` (chave, nível gratuito, limites, reindexação), `docs/decisions.md` (ADR 24–30), `docs/evaluation.md`
+  (rodada real pendente; resultados antigos preservados), `docs/api-contract.md`.
+
+### Testes executados (migração Gemini, 05/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **145 passed** (33 unitários novos em `test_unit_gemini.py`: task types, dimensão, normalização, lotes, tokens oficial/estimado, conversão de papéis, geração, streaming, 429/credencial/404/timeout/rede, vazio/bloqueio, backoff, `ai_configured`, fábricas, rótulos; 6 de integração em `test_reindex_and_provider_errors.py`: exclusão de embeddings de outro modelo, reindexação no lugar com backup/restauração, falha sem deixar `ready` + parada por quota, quota no chat (sync e SSE), falha de embeddings no chat/busca, pipeline com credencial inválida e quota) |
+| Ruff + `alembic check` | OK, sem drift |
+| Frontend `typecheck`, `lint`, `test` | 0 erros TS, 0 erros ESLint, **102 passed** |
+| `scripts/check_gemini.py` (sem chave) | **pendente** — sai com código 2 e marca `api_key` como ausente; nenhuma chamada real feita |
+| Teste real da API Gemini e fluxo completo com `samples/` | **pendente** (requer `GEMINI_API_KEY` do autor) |
+
+### Limitações conhecidas da migração
+
+- Sem rodada real, não há métricas Gemini publicadas; a avaliação em `docs/evaluation/` continua sendo a do provedor `fake`.
+- A Gemini API não devolve tokens por texto nos embeddings: o uso de embeddings é estimado localmente (tiktoken, não o
+  tokenizador do Gemini) e sinalizado como estimativa; a geração usa a contagem oficial do provedor.
+- Limites do nível gratuito são por projeto e mudam; o sistema trata 429 com backoff e mensagem honesta, mas não
+  conhece a quota restante.
+- `gemini-3.5-flash-lite` raciocina por padrão (nível mínimo); `GEMINI_THINKING_LEVEL` permite ajustar custo/latência.
 
 ## Funcionalidades concluídas (Fase 6)
 
@@ -212,9 +272,12 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 ## Próximos passos
 
-1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
-   `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
+1. Colocar `GEMINI_API_KEY` no `.env`, definir `EMBEDDING_PROVIDER=gemini` e `LLM_PROVIDER=gemini`,
+   `docker compose up -d --force-recreate api worker`, depois `scripts/check_gemini.py --compose`,
+   `python -m app.rag.embeddings.reindex --dry-run` (documentos indexados com `fake`/OpenAI) e
+   `scripts/smoke_test.py`; registrar o resultado real aqui e no README.
 2. Hospedar a demo pública (TLS + `APP_BASE_URL` + `scripts/seed_demo.py`) e registrar o link no README.
-3. Com chave real, rodar `python -m app.rag.evaluation --judge llm` e comparar alvos de chunk/`top_k`/limiar.
+3. Com chave real, rodar `python -m app.rag.evaluation --judge llm` (respeitando os limites do nível gratuito) e
+   comparar alvos de chunk/`top_k`/limiar.
 4. Evoluções fora do plano original: 2FA, reranker neural, rasterização para OCR, exportação PDF/DOCX.
 5. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).

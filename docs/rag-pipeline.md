@@ -54,20 +54,53 @@ explícita (não tratamos caracteres como tokens).
 
 ## 3. Embeddings e indexação (`rag/embeddings`)
 
-- Interface `EmbeddingProvider` com `OpenAIEmbeddingProvider` (modelo e dimensão por variáveis de
-  ambiente) e `FakeEmbeddingProvider` (hash de palavras, determinístico, só para testes/dev).
+- Interface `EmbeddingProvider` com três implementações: `GeminiEmbeddingProvider` (padrão;
+  `providers/gemini.py`), `OpenAIEmbeddingProvider` e `FakeEmbeddingProvider` (hash de palavras,
+  determinístico, só para testes/dev). Modelo e dimensão vêm de variáveis de ambiente.
+- **Gemini** (`gemini-embedding-001`, SDK `google-genai`, `client.models.embed_content`): chunks são
+  vetorizados com `task_type=RETRIEVAL_DOCUMENT` e perguntas com `RETRIEVAL_QUERY` (espaços
+  assimétricos otimizados para busca — os dois métodos **não** são equivalentes); `output_dimensionality=1536`;
+  como o modelo só devolve vetores normalizados em 3072 dimensões, cada vetor truncado é normalizado
+  (L2) antes de gravar, mantendo a distância cosseno do pgvector consistente. Lotes de até 100 textos
+  por requisição (limite da API). A Gemini API não devolve contagem de tokens por texto: quando o
+  campo `statistics.token_count` não vem, os tokens são **estimados localmente** e o registro de uso
+  carrega `tokens_source=estimated_local` (a UI marca "parte estimada"); nunca são exibidos como medida oficial.
 - A dimensão de cada vetor é validada antes de gravar. A coluna `vector(1536)` é fixa por migration;
   trocar `EMBEDDING_DIMENSIONS` exige migration + reindexação.
 - `EmbeddingRecord` guarda `model`, `dimensions`, `indexed_at` e `workspace_id`. A busca só considera
-  registros do **mesmo modelo e dimensão** configurados, evitando misturar espaços incompatíveis.
+  registros do **mesmo modelo e dimensão** do provedor ativo, evitando misturar espaços incompatíveis
+  (embeddings OpenAI e Gemini com 1536 dimensões **não** são comparáveis).
 - Reprocessar incrementa `indexing_version`; chunks/embeddings antigos só são removidos depois que
   a nova versão existe.
+
+### Troca de modelo e reindexação (`rag/embeddings/reindex.py`)
+
+Quando o modelo de embeddings muda (ex.: OpenAI → Gemini), os documentos indexados com o modelo
+anterior continuam prontos e pesquisáveis pela busca textual, mas ficam **fora da busca vetorial**
+(o filtro de modelo os exclui). O sistema torna isso visível: `RetrievalResult.stale_documents`
+(persistido em `retrieval_meta` e exposto em `GET /messages/{id}/retrieval`), log `retrieval_stale_embeddings`
+e `ai.stale_embedding_documents` em `GET /workspaces/current/settings` (aviso na área de provedores).
+
+`python -m app.rag.embeddings.reindex` (comando explícito; nunca roda na inicialização):
+
+1. lista os documentos cujos chunks da versão ativa não têm embedding do modelo/dimensão atuais (`--dry-run`);
+2. copia os vetores atuais para `embedding_records_backup` (`--restore <id>` devolve-os; `--list-backups`);
+3. para cada documento, em transação própria: status `embedding` (sai do escopo de busca), regeneração via
+   `EmbeddingIndexer`, que **substitui o registro no lugar** (a tabela tem `chunk_id` único — nunca há dois
+   vetores para o mesmo chunk), atualiza `DocumentVersion.embedding_model`, registra `ProcessingJob` e uso,
+   e só então volta a `ready`;
+4. em falha, `rollback` (vetores antigos intactos), documento `failed` com a causa e orientação para repetir;
+   quota (429), credencial ou modelo indisponível interrompem a rodada (`--include-failed` retoma depois).
+
+Nenhum documento, conversa ou arquivo é excluído; `indexing_version` e os chunks permanecem os mesmos.
 
 ## 4. Recuperação (`rag/retrieval/RetrievalService`)
 
 1. Resolve o escopo autorizado: documentos **prontos** do workspace da sessão; IDs fora do workspace
    geram 403 sem revelar sua existência.
-2. Gera o embedding da pergunta.
+2. Gera o embedding da pergunta (`embed_query`; no Gemini, `task_type=RETRIEVAL_QUERY`). Falhas do
+   provedor (quota, credencial, timeout) viram `ProviderError` com mensagem segura: o chat grava uma
+   resposta com `status=error`, a busca devolve 503 com o código do erro.
 3. `SELECT ... ORDER BY embedding <=> :q LIMIT k` (cosseno exato, sem índice ANN nesta fase) com
    filtros de workspace em `embedding_records`, `document_chunks` e `documents`, modelo/dimensão e
    `indexing_version` ativa.
@@ -91,6 +124,24 @@ a Fase 6 (avaliação) os ajustará com dados. Índice HNSW será avaliado quand
   base na avaliação da Fase 6.
 
 ## 5. Geração e citações (`rag/generation`)
+
+### Provedor Gemini (`providers/gemini.py`)
+
+- `GeminiLLMProvider` usa `client.models.generate_content` e `generate_content_stream`
+  (`gemini-3.5-flash-lite` por padrão). Mensagens `system` viram `system_instruction`; `user` → papel
+  `user`; `assistant` → papel `model`; turnos consecutivos do mesmo papel viram partes do mesmo turno. O
+  contexto com os trechos (`<trecho id="n">…`) continua **dentro da mensagem do usuário**, nunca como
+  instrução de sistema — o modelo trata os documentos como dados citáveis.
+- `max_output_tokens` sempre enviado; `temperature` só quando `GEMINI_APPLY_TEMPERATURE=true` (a Google
+  recomenda manter o padrão nos modelos Gemini 3); `thinking_config.thinking_level` quando
+  `GEMINI_THINKING_LEVEL` está definido. `completion_tokens` soma tokens de resposta e de raciocínio
+  (`thoughts_token_count`), que é como o provedor os contabiliza.
+- O streaming repassa os fragmentos reais do SDK; a abertura do stream (incluindo o primeiro fragmento)
+  recebe retentativas, mas depois do primeiro delta um erro é propagado (não há como reiniciar sem duplicar
+  texto). Respostas vazias, `finish_reason` de bloqueio (`SAFETY`, `RECITATION`, `PROHIBITED_CONTENT`…) e
+  `prompt_feedback.block_reason` viram `ai_empty_response` / `ai_response_blocked`.
+- A validação estrutural das citações (abaixo) é a mesma para qualquer provedor: ids fora do contexto são
+  removidos e as referências (documento, página/seção, trecho) são geradas pelo backend.
 
 - `build_context`: inclui trechos em ordem de relevância até `MAX_CONTEXT_TOKENS` (6000), cada um em
   `<trecho id="n" documento="..." página X>` … `</trecho>`. Tags dentro do conteúdo são neutralizadas.

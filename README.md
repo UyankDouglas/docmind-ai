@@ -135,9 +135,9 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Frontend | React 19, TypeScript, Vite 7, Tailwind CSS 4, componentes estilo shadcn/ui (Radix), React Router 7, TanStack Query 5, React Hook Form + Zod, Lucide, PDF.js (`pdfjs-dist`) |
 | Backend | Python 3.13, FastAPI, Pydantic 2, SQLAlchemy 2, Alembic, psycopg 3, pgvector, Celery, Redis, Argon2id, structlog |
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
-| IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
+| IA | Camada de adaptadores (`providers/`): **Google Gemini** (`google-genai`: `gemini-embedding-001` + `gemini-3.5-flash-lite`, padrão), OpenAI ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (106 testes), Vitest + Testing Library (102 testes), Playwright E2E (8 testes + screenshots) |
+| Testes | Pytest (145 testes), Vitest + Testing Library (102 testes), Playwright E2E (8 testes + screenshots) |
 
 ## Como executar
 
@@ -145,7 +145,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 
 ```bash
 git clone <repo> docmind-ai && cd docmind-ai
-cp .env.example .env     # defina SECRET_KEY e, se tiver, OPENAI_API_KEY
+cp .env.example .env     # defina SECRET_KEY e GEMINI_API_KEY (ou EMBEDDING_PROVIDER/LLM_PROVIDER=fake)
 docker compose up --build
 ```
 
@@ -165,11 +165,20 @@ Ver [docs/deploy.md](docs/deploy.md): PGlite + pgvector local (`scripts/pglite`)
 
 | Variável | Descrição |
 |---|---|
-| `EMBEDDING_PROVIDER` / `LLM_PROVIDER` | `openai` (real) ou `fake` (determinístico; só desenvolvimento/testes) |
-| `OPENAI_API_KEY` | chave do provedor (nunca vai para o frontend nem para o repositório) |
-| `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | modelo e dimensão do vetor; trocar exige reindexação |
-| `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES` | geração |
+| `EMBEDDING_PROVIDER` / `LLM_PROVIDER` | `gemini` (Google Gemini API, padrão), `openai` ou `fake` (determinístico; só desenvolvimento/testes). Embeddings e geração precisam **ambos** de chave para a IA constar como configurada |
+| `GEMINI_API_KEY` | chave da Gemini API, criada em [Google AI Studio](https://aistudio.google.com/app/apikey); lida só pelo backend (`api` e `worker`), nunca vai para o frontend nem para o repositório |
+| `OPENAI_API_KEY` | só com `*_PROVIDER=openai` |
+| `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` | `gemini-embedding-001` com `1536` dimensões (coluna `vector(1536)` do pgvector); trocar modelo ou dimensão exige reindexar (`python -m app.rag.embeddings.reindex`) |
+| `LLM_MODEL`, `LLM_ALLOWED_MODELS` | `gemini-3.5-flash-lite` por padrão; modelos que administradores podem escolher por workspace |
+| `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `PROVIDER_RETRY_*` | timeout e retentativas com backoff exponencial + jitter para 429/5xx/rede (nunca infinitas) |
+| `GEMINI_THINKING_LEVEL`, `GEMINI_APPLY_TEMPERATURE` | nível de raciocínio (vazio = padrão do modelo) e se a temperatura da aplicação é enviada (padrão: não, como a Google recomenda para Gemini 3) |
 | `PRICE_*_PER_1M` | opcional; sem valores, o sistema **não** exibe custo estimado |
+
+**Nível gratuito do Gemini**: a chave do AI Studio funciona sem cartão, com limites por minuto e por dia por
+projeto (visíveis no próprio AI Studio) e, nesse nível, o Google pode usar o conteúdo enviado para melhorar seus
+produtos — a interface mostra esse aviso. Quando o limite é atingido, o DocMind informa que o limite do provedor
+foi alcançado e que o processamento poderá ser tentado mais tarde; ele **não** migra para modelos pagos nem ativa
+faturamento. Passo a passo e procedimento de reindexação em [docs/deploy.md](docs/deploy.md#google-gemini-chave-nível-gratuito-e-reindexação).
 
 Sem chave configurada, a interface informa que a geração com IA está indisponível; nada é simulado como
 resposta real. A tela de configurações mostra o aviso de que trechos (não arquivos inteiros) podem ser
