@@ -190,8 +190,10 @@ def revoke_invitation(
 
 # ----------------------------------------------------------------------------- configurações e retenção
 @router.get("/current/settings", response_model=WorkspaceSettingsOut)
-def get_settings(ctx: AuthContext = Depends(get_current_auth)) -> dict:
-    return rs_service.workspace_settings_out(ctx.workspace)
+def get_settings(
+    ctx: AuthContext = Depends(get_current_auth), db: Session = Depends(get_db)
+) -> dict:
+    return rs_service.workspace_settings_out(ctx.workspace, db)
 
 
 @router.patch("/current/settings", response_model=WorkspaceSettingsOut)

@@ -76,12 +76,28 @@ def workspace_ocr_enabled(workspace: Workspace) -> bool:
     return bool(((workspace.settings or {}).get("ai") or {}).get("ocr_enabled")) and ocr_available()
 
 
-def workspace_settings_out(workspace: Workspace) -> dict[str, Any]:
+def workspace_settings_out(workspace: Workspace, db: Session | None = None) -> dict[str, Any]:
+    from app.core.exceptions import AIUnavailableError
+    from app.providers.embeddings import get_embedding_provider
     from app.providers.ocr import ocr_available
     from app.services.limits import get_limits
     from app.services.retention import get_policy
+    from app.services.system import current_embedding_model, model_label, provider_label
 
     ai_raw = (workspace.settings or {}).get("ai") or {}
+    # Modelo que a busca vetorial realmente usa (provedor ativo); sem chave, o configurado
+    try:
+        active = get_embedding_provider()
+        embedding_model, dimensions = active.model, active.dimensions
+    except AIUnavailableError:
+        embedding_model, dimensions = current_embedding_model(), settings.embedding_dimensions
+    stale = 0
+    if db is not None:
+        from app.rag.embeddings.reindex import stale_documents_count
+
+        stale = stale_documents_count(
+            db, workspace_id=workspace.id, model=embedding_model, dimensions=dimensions
+        )
     return {
         "external_ai_enabled": workspace.external_ai_enabled,
         "retrieval": get_retrieval_settings(workspace).to_dict(),
@@ -90,9 +106,11 @@ def workspace_settings_out(workspace: Workspace) -> dict[str, Any]:
         "ai": {
             "llm_model": workspace_llm_model(workspace),
             "allowed_llm_models": settings.llm_allowed_model_list,
-            "embedding_model": settings.embedding_model
-            if settings.embedding_provider != "fake"
-            else "fake-hash-v1",
+            "embedding_model": embedding_model,
+            "embedding_provider": settings.embedding_provider,
+            "embedding_provider_label": provider_label(settings.embedding_provider),
+            "embedding_model_label": model_label(embedding_model),
+            "stale_embedding_documents": stale,
             "ocr_enabled": bool(ai_raw.get("ocr_enabled")) and ocr_available(),
             "ocr_available": ocr_available(),
         },
@@ -162,4 +180,4 @@ def update_workspace_settings(
     )
     db.commit()
     db.refresh(ws)
-    return workspace_settings_out(ws)
+    return workspace_settings_out(ws, db)

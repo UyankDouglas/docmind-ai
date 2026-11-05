@@ -171,6 +171,8 @@ class EvidenceParams(BaseModel):
     min_similarity: float
     max_context_tokens: int
     embedding_model: str | None
+    # Documentos do escopo que ficaram fora da busca vetorial por terem embeddings de outro modelo
+    stale_documents: int = 0
 
 
 class EvidenceLatency(BaseModel):

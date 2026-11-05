@@ -108,6 +108,11 @@ class RetrievalResult:
     vector_candidates: int = 0
     lexical_candidates: int = 0
     rrf_k: int = 60
+    # Documentos do escopo sem embeddings do modelo/dimensão atuais (ficam fora da busca vetorial
+    # até serem reindexados; a busca textual continua a encontrá-los)
+    stale_documents: int = 0
+    # "provider" quando a contagem de tokens veio da API; "estimated_local" quando foi estimada
+    embedding_tokens_source: str = "provider"
 
     @property
     def total_latency_ms(self) -> int:
@@ -168,6 +173,31 @@ class RetrievalService:
                 raise ForbiddenError("Um ou mais documentos não pertencem ao seu workspace.")
             stmt = stmt.where(Document.id.in_(requested))
         return list(self.db.scalars(stmt))
+
+    def _stale_documents(self, doc_ids: list[uuid.UUID]) -> int:
+        """Documentos do escopo sem nenhum embedding do modelo/dimensão do provedor atual.
+
+        Embeddings de outro modelo (ex.: OpenAI) nunca são comparados com a pergunta vetorizada
+        pelo provedor atual (ex.: Gemini): o filtro de modelo em `_vector_candidates` os exclui.
+        Este contador torna a exclusão visível (log, metadados da resposta) em vez de silenciosa.
+        """
+        if not doc_ids:
+            return 0
+        current = (
+            select(EmbeddingRecord.id)
+            .where(
+                EmbeddingRecord.document_id == Document.id,
+                EmbeddingRecord.model == self.provider.model,
+                EmbeddingRecord.dimensions == self.provider.dimensions,
+            )
+            .exists()
+        )
+        return int(
+            self.db.scalar(
+                select(func.count()).select_from(Document).where(Document.id.in_(doc_ids), ~current)
+            )
+            or 0
+        )
 
     # ---------------------------------------------------------------- candidatos
     def _isolation_filters(self, workspace_id: uuid.UUID, doc_ids: list[uuid.UUID]) -> list:
@@ -259,6 +289,7 @@ class RetrievalService:
         doc_ids = self.resolve_scope(scope)
         emb = self.provider.embed_query(query)
         query_vector = emb.vectors[0]
+        tokens_source = str((emb.extra or {}).get("tokens_source") or "provider")
 
         if not doc_ids:
             return RetrievalResult(
@@ -273,9 +304,18 @@ class RetrievalService:
                 [],
                 mode=mode,
                 rrf_k=rrf_k,
+                embedding_tokens_source=tokens_source,
             )
 
         started = time.perf_counter()
+        stale = self._stale_documents(doc_ids)
+        if stale:
+            log.warning(
+                "retrieval_stale_embeddings",
+                workspace_id=str(scope.workspace_id),
+                stale_documents=stale,
+                model=self.provider.model,
+            )
         # No modo híbrido buscamos mais candidatos em cada ranking para a fusão ter material
         candidate_limit = top_k if mode == "vector" else max(top_k * 2, 10)
         vec_rows = self._vector_candidates(
@@ -357,6 +397,7 @@ class RetrievalService:
             top_k=top_k,
             search_ms=search_ms,
             embedding_ms=emb.latency_ms,
+            stale_documents=stale,
         )
         return RetrievalResult(
             query=query,
@@ -372,4 +413,6 @@ class RetrievalService:
             vector_candidates=len(vec_rows),
             lexical_candidates=len(lex_rows),
             rrf_k=rrf_k,
+            stale_documents=stale,
+            embedding_tokens_source=tokens_source,
         )
