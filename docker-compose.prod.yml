@@ -62,7 +62,7 @@ services:
     env_file: .env
     environment:
       APP_ENV: production
-    command: celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=50
+    command: celery -A app.workers.celery_app:celery_app worker --loglevel=INFO --concurrency=2 --max-tasks-per-child=50 -B --schedule=/tmp/celerybeat-schedule
     depends_on:
       api: { condition: service_started }
     deploy:

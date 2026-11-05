@@ -214,10 +214,25 @@ class FakeLLMProvider:
 
 
 _provider: LLMProvider | None = None
+_by_model: dict[str, LLMProvider] = {}
 
 
-def get_llm_provider() -> LLMProvider:
+def get_llm_provider(model: str | None = None) -> LLMProvider:
     global _provider
+    if model and model != settings.llm_model and _provider is None:
+        if model not in _by_model:
+            if settings.llm_provider == "fake":
+                _by_model[model] = FakeLLMProvider(model=f"fake-{model}")
+            elif not settings.openai_api_key:
+                raise AIUnavailableError(
+                    "Provedor de linguagem não configurado: defina OPENAI_API_KEY "
+                    "ou LLM_PROVIDER=fake para desenvolvimento."
+                )
+            else:
+                _by_model[model] = OpenAILLMProvider(
+                    api_key=settings.openai_api_key, model=model, base_url=settings.openai_base_url
+                )
+        return _by_model[model]
     if _provider is not None:
         return _provider
     if settings.llm_provider == "fake":
@@ -239,3 +254,4 @@ def get_llm_provider() -> LLMProvider:
 def set_llm_provider(provider: LLMProvider | None) -> None:
     global _provider
     _provider = provider
+    _by_model.clear()

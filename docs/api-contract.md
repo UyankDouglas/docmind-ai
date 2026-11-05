@@ -433,3 +433,110 @@ Regras:
   documentos longos usam os `top_k` trechos mais relevantes por documento para a pergunta/aspectos).
 - Em `ai_unavailable` a análise falha com `error_message` honesto (não há resultado simulado).
 - Perguntas sugeridas: ao clicar, o frontend cria uma conversa com `document_ids=[id]` e envia a pergunta.
+
+---
+
+# Adições da Fase 5 — Administração e Segurança
+
+## Papéis e permissões (matriz aplicada no backend)
+
+| Ação | admin | editor | viewer |
+|---|---|---|---|
+| Ver documentos autorizados, pesquisar, perguntar, ver histórico próprio | ✓ | ✓ | ✓ |
+| Enviar/renomear/reprocessar documentos, gerir coleções e tags | ✓ | ✓ | — |
+| Excluir documentos | ✓ (todos) | ✓ (próprios) | — |
+| Criar análises (resumos/comparações) | ✓ | ✓ | ✓ |
+| Excluir análises | ✓ (todas) | próprias | próprias |
+| Convidar/remover membros, alterar papéis | ✓ | — | — |
+| Configurações do workspace (recuperação, IA, limites, retenção) | ✓ | — | — |
+| Auditoria e uso por usuário | ✓ | — | — |
+
+## Tipos
+
+```ts
+interface Invitation {
+  id: string; email: string; role: Role; status: "pending" | "accepted" | "revoked" | "expired";
+  invited_by: { id: string; name: string }; created_at: string; expires_at: string; accepted_at: string | null;
+  accept_url: string | null;   // só na criação e para admins (sem e-mail configurado o admin copia o link)
+}
+
+interface WorkspaceMembership { id: string; name: string; slug: string; role: Role; is_current: boolean }
+
+interface UsageLimits {
+  questions_per_hour: number; uploads_per_hour: number; max_upload_mb: number; max_pdf_pages: number;
+  // Fase 5 (por workspace, null = sem limite)
+  monthly_token_budget: number | null; monthly_cost_budget_usd: number | null;
+  max_documents: number | null; max_storage_mb: number | null;
+}
+
+interface Usage {
+  // ...Fase 3, mais:
+  tokens_month_total: number; budget_used_pct: number | null;   // em relação a monthly_token_budget
+  documents_count: number; storage_mb: number;
+  blocked: boolean; blocked_reason: string | null;              // true quando algum teto mensal foi atingido
+}
+
+interface WorkspaceSettings {
+  external_ai_enabled: boolean;
+  retrieval: RetrievalSettings;
+  limits: { monthly_token_budget: number | null; monthly_cost_budget_usd: number | null; max_documents: number | null; max_storage_mb: number | null };
+  retention: { conversations_days: number | null; analyses_days: number | null; search_history_days: number | null; deleted_documents_days: number | null; last_run_at: string | null };
+  ai: { llm_model: string | null; allowed_llm_models: string[]; embedding_model: string; ocr_enabled: boolean; ocr_available: boolean };
+}
+
+interface AuditEntry {
+  id: string; action: string; user: { id: string; name: string; email: string } | null;
+  target_type: string | null; target_id: string | null; ip_address: string | null;
+  details: Record<string, unknown>; created_at: string;
+}
+
+interface AdminUsage {
+  period_start: string; period_end: string;
+  by_user: Array<{ user_id: string; name: string; email: string; questions: number; uploads: number; prompt_tokens: number; completion_tokens: number; estimated_cost_usd: number | null }>;
+  by_day: Array<{ day: string; questions: number; prompt_tokens: number; completion_tokens: number }>;
+  totals: { questions: number; uploads: number; prompt_tokens: number; completion_tokens: number; estimated_cost_usd: number | null; documents: number; storage_mb: number };
+}
+
+interface UserSessionInfo { id: string; created_at: string; last_seen_at: string; user_agent: string | null; ip_address: string | null; is_current: boolean }
+```
+
+## Endpoints
+
+### Conta
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| POST | `/auth/forgot-password` | `{ email }` | 202 sempre (não revela se o e-mail existe). Em dev, o link é registrado no log do servidor; com `MAIL_*` configurado, enviado por e-mail |
+| POST | `/auth/reset-password` | `{ token, password }` | 204; revoga todas as sessões do usuário |
+| POST | `/auth/change-password` | `{ current_password, new_password }` | 204; revoga as outras sessões |
+| GET | `/auth/sessions` | — | `{ items: UserSessionInfo[] }` |
+| DELETE | `/auth/sessions/{id}` | — | 204 (não permite revogar a sessão atual por aqui; use logout) |
+| DELETE | `/auth/sessions` | — | 204 (revoga todas as outras) |
+
+### Workspaces e membros
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| GET | `/workspaces` | — | `{ items: WorkspaceMembership[] }` |
+| POST | `/workspaces/switch` | `{ workspace_id }` | `UserMe` (troca o workspace da sessão; 403 se não for membro) |
+| PATCH | `/workspaces/current` | `{ name? }` | `Workspace` (admin) |
+| PATCH | `/workspaces/current/members/{user_id}` | `{ role }` | `Member` (admin; não pode rebaixar/remover o último admin) |
+| DELETE | `/workspaces/current/members/{user_id}` | — | 204 (admin; usuário removido perde acesso imediato: sessões dele nesse workspace são revogadas) |
+| GET | `/workspaces/current/invitations` | — | `{ items: Invitation[] }` (admin) |
+| POST | `/workspaces/current/invitations` | `{ email, role }` | `201 Invitation` com `accept_url` (admin; 409 se já é membro ou há convite pendente) |
+| DELETE | `/workspaces/current/invitations/{id}` | — | 204 (revoga) |
+| GET | `/invitations/{token}` | — | `{ workspace_name, email, role, expires_at, status }` (público, para a página de aceite) |
+| POST | `/invitations/{token}/accept` | — | `UserMe` (usuário autenticado; o e-mail da conta deve ser o convidado; troca a sessão para o workspace) |
+
+### Configurações, uso, auditoria (admin)
+| Método | Rota | Corpo | Resposta |
+|---|---|---|---|
+| GET/PATCH | `/workspaces/current/settings` | `+ limits?`, `retention?`, `ai?: { llm_model?: string \| null, ocr_enabled?: boolean }` | `WorkspaceSettings` (modelo só da lista `allowed_llm_models`; OCR só se `ocr_available`) |
+| GET | `/admin/usage` | `days?` (padrão 30) | `AdminUsage` |
+| GET | `/audit` | `action?`, `user_id?`, `from?`, `to?`, `page`, `page_size` | `Paginated<AuditEntry>` |
+| GET | `/audit/export?format=csv\|json` | mesmos filtros | arquivo |
+| POST | `/workspaces/current/retention/run` | — | `{ deleted: { conversations, analyses, search_queries, documents } }` (executa a política agora) |
+
+Regras de limites: quando `monthly_token_budget`/`monthly_cost_budget_usd` é atingido, `POST /conversations/{id}/messages`,
+`/messages/stream`, `/search` e as análises respondem 429 `usage_limit_exceeded` com mensagem explicando o teto; o chat
+síncrono ainda persiste a pergunta com `status = "ai_unavailable"`? **Não**: a requisição é recusada antes de persistir.
+`max_documents`/`max_storage_mb` bloqueiam novos uploads (429). A retenção roda diariamente (Celery beat) e no
+`POST .../retention/run`; documentos excluídos (soft delete) são purgados do storage após `deleted_documents_days`.

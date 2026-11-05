@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
@@ -105,3 +107,88 @@ def logout(
 @router.get("/me", response_model=UserMe)
 def me(ctx: AuthContext = Depends(get_current_auth)) -> UserMe:
     return _me(ctx)
+
+
+# ----------------------------------------------------------------------------- conta (Fase 5)
+from app.schemas.admin import (  # noqa: E402
+    ChangePasswordRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    SessionInfoOut,
+    SessionList,
+)
+from app.services import account as account_service  # noqa: E402
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+def forgot_password(
+    payload: ForgotPasswordRequest, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    ip = client_ip(request)
+    enforce_rate_limit("forgot_password", ip or "unknown", settings.rate_limit_login_per_minute, 60)
+    account_service.request_password_reset(db, email=payload.email, ip_address=ip)
+    return {"status": "accepted"}
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+def reset_password(
+    payload: ResetPasswordRequest, request: Request, db: Session = Depends(get_db)
+) -> Response:
+    account_service.reset_password(
+        db, token=payload.token, password=payload.password, ip_address=client_ip(request)
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> Response:
+    account_service.change_password(
+        db,
+        ctx,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+        ip_address=client_ip(request),
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/sessions", response_model=SessionList)
+def list_sessions(
+    ctx: AuthContext = Depends(get_current_auth), db: Session = Depends(get_db)
+) -> SessionList:
+    return SessionList(
+        items=[
+            SessionInfoOut(
+                id=s.id,
+                created_at=s.created_at,
+                last_seen_at=s.last_seen_at,
+                user_agent=s.user_agent,
+                ip_address=s.ip_address,
+                is_current=s.id == ctx.session.id,
+            )
+            for s in account_service.list_sessions(db, ctx)
+        ]
+    )
+
+
+@router.delete("/sessions", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_other_sessions(
+    ctx: AuthContext = Depends(get_current_auth), db: Session = Depends(get_db)
+) -> Response:
+    account_service.revoke_other_sessions(db, ctx)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_session(
+    session_id: uuid.UUID,
+    ctx: AuthContext = Depends(get_current_auth),
+    db: Session = Depends(get_db),
+) -> Response:
+    account_service.revoke_session(db, ctx, session_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -76,3 +76,12 @@ def run_analysis_task(self: Task, analysis_id: str) -> dict:
     with session_scope() as db:
         analysis = run_analysis(db, uuid.UUID(analysis_id))
         return {"status": analysis.status, "kind": analysis.kind, "error": analysis.error_message}
+
+
+@celery_app.task(name="maintenance.apply_retention")
+def apply_retention_task() -> dict:
+    """Aplica as políticas de retenção de todos os workspaces (agendado pelo Celery beat)."""
+    from app.services.retention import apply_all
+
+    with session_scope() as db:
+        return apply_all(db)

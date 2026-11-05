@@ -29,6 +29,12 @@ dependencies = [
     "itsdangerous>=2.2",
 ]
 
+[project.optional-dependencies]
+ocr = [
+    "pytesseract>=0.3.13",
+    "pillow>=10.4",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",

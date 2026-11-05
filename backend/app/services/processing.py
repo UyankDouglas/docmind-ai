@@ -69,6 +69,43 @@ class DocumentPipeline:
         doc.status = status
         self.db.commit()
 
+    def _try_ocr(self, doc: Document, data: bytes, extracted):
+        """OCR opcional para PDFs sem camada de texto, quando habilitado no workspace e disponível."""
+        from app.models import Workspace
+        from app.providers.ocr import get_ocr_provider
+        from app.rag.extraction.base import ExtractedPage
+        from app.rag.extraction.normalize import normalize_page_text
+        from app.services.retrieval_settings import workspace_ocr_enabled
+
+        workspace = self.db.get(Workspace, doc.workspace_id)
+        if workspace is None or not workspace_ocr_enabled(workspace):
+            return extracted
+        provider = get_ocr_provider()
+        try:
+            result = provider.ocr_pdf(data, max_pages=settings.max_pdf_pages)
+        except Exception as exc:
+            log.warning("ocr_failed", document_id=str(doc.id), error_type=type(exc).__name__)
+            extracted.warnings.append("OCR falhou; o documento foi tratado como sem texto.")
+            return extracted
+        ocr_text = {p.number: normalize_page_text(p.text) for p in result.pages}
+        pages = []
+        for page in extracted.pages:
+            text = page.text if len(page.text) >= 20 else ocr_text.get(page.number, "")
+            pages.append(ExtractedPage(number=page.number, text=text, label=page.label))
+        extracted.pages = pages
+        extracted.char_count = sum(p.char_count for p in pages)
+        extracted.metadata = {
+            **extracted.metadata,
+            "ocr_engine": result.engine,
+            "ocr_language": result.language,
+        }
+        extracted.warnings = (
+            [w for w in extracted.warnings if "OCR" not in w]
+            + ["Texto obtido por OCR (reconhecimento óptico): pode conter erros de leitura."]
+            + result.warnings
+        )
+        return extracted
+
     def _update_version(self, doc: Document, **fields) -> None:
         version = self.db.scalar(
             select(DocumentVersion).where(
@@ -127,7 +164,6 @@ class DocumentPipeline:
             data = self.storage.get_bytes(doc.storage_key)
             extractor = get_extractor(doc.mime_type)
             extracted = extractor.extract(data, max_pages=settings.max_pdf_pages)
-            del data
             doc.page_count = extracted.page_count
             doc.char_count = extracted.char_count
             doc.extraction_meta = {
@@ -136,6 +172,8 @@ class DocumentPipeline:
                 "has_real_pages": extracted.has_real_pages,
             }
             self.db.commit()
+            if not extracted.has_sufficient_text and doc.mime_type == "application/pdf":
+                extracted = self._try_ocr(doc, data, extracted)
             if not extracted.has_sufficient_text:
                 if doc.mime_type == "application/pdf":
                     raise ExtractionError(

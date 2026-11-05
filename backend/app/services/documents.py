@@ -44,6 +44,7 @@ from app.rag.extraction.base import DOCX_MIME, PDF_MIME, TXT_MIME
 from app.services.audit import record_audit
 from app.services.auth import AuthContext
 from app.services.collections import get_collection
+from app.services.limits import enforce_document_limits
 from app.services.usage import enforce_upload_limit, record_usage
 
 log = get_logger(__name__)
@@ -194,6 +195,7 @@ def create_upload(
     tags = normalize_tags(upload.tags)
 
     data = read_upload_limited(upload.stream, settings.max_upload_bytes)
+    enforce_document_limits(db, ctx.workspace, incoming_bytes=len(data))
     original_name = _sanitize_filename(upload.filename)
     mime = detect_type(original_name, data)
     if len(data) < 16:

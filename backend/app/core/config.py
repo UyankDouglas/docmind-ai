@@ -86,6 +86,24 @@ class Settings(BaseSettings):
     max_context_tokens: int = 6000
     max_output_tokens: int = 800
     max_question_chars: int = 2000
+    # --- Conta, e-mail e convites ---
+    app_base_url: str = "http://localhost:5173"
+    password_reset_ttl_minutes: int = 30
+    invitation_ttl_days: int = 7
+    mail_host: str | None = None
+    mail_port: int = 587
+    mail_username: str | None = None
+    mail_password: str | None = None
+    mail_from: str = "DocMind AI <no-reply@docmind.local>"
+    mail_use_tls: bool = True
+    # --- Provedores: modelos permitidos para escolha por workspace (vazio = só o padrão) ---
+    llm_allowed_models: str = ""
+    # --- OCR opcional (Tesseract) ---
+    ocr_enabled: bool = False
+    ocr_language: str = "por"
+    tesseract_cmd: str | None = None
+    # --- Retenção ---
+    retention_run_hour_utc: int = 3
     # --- Análises (resumos, comparações, tópicos) ---
     analysis_max_input_tokens: int = 120_000
     analysis_max_output_tokens: int = 1500
@@ -119,6 +137,14 @@ class Settings(BaseSettings):
             f"postgresql+psycopg://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def llm_allowed_model_list(self) -> list[str]:
+        models = [m.strip() for m in self.llm_allowed_models.split(",") if m.strip()]
+        if self.llm_model not in models:
+            models.insert(0, self.llm_model)
+        return models
 
     @computed_field  # type: ignore[prop-decorator]
     @property

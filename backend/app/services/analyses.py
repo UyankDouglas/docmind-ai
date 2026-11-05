@@ -29,6 +29,7 @@ from app.models import (
     Message,
     MessageRole,
     UsageKind,
+    Workspace,
     WorkspaceRole,
 )
 from app.models.base import utcnow
@@ -40,7 +41,8 @@ from app.rag.generation.analysis import SUMMARY_TYPES, AnalysisCancelledError, E
 from app.rag.retrieval import RetrievalScope, RetrievalService, RetrievedChunk
 from app.services.audit import record_audit
 from app.services.auth import AuthContext
-from app.services.retrieval_settings import get_retrieval_settings
+from app.services.limits import enforce_budget
+from app.services.retrieval_settings import get_retrieval_settings, workspace_llm_model
 from app.services.usage import enforce_question_limit, record_usage
 
 log = get_logger(__name__)
@@ -128,6 +130,7 @@ def _create(
     if ctx.role == WorkspaceRole.VIEWER and kind == "comparison":
         pass  # visualizadores podem comparar/resumir: só leitura dos documentos autorizados
     enforce_question_limit(db, ctx.user.id)
+    enforce_budget(db, ctx.workspace)
     _enforce_size(db, docs)
     analysis = Analysis(
         workspace_id=ctx.workspace_id,
@@ -378,18 +381,18 @@ def run_analysis(
         return bool(a.cancel_requested)
 
     try:
+        docs = list(db.scalars(select(Document).where(Document.id.in_(a.document_ids))))
         try:
-            llm = llm or get_llm_provider()
+            ws_for_model = db.get(Workspace, a.workspace_id)
+            llm = llm or get_llm_provider(
+                workspace_llm_model(ws_for_model) if ws_for_model else None
+            )
         except AIUnavailableError as exc:
             raise AnalysisFailureError(str(exc)) from exc
-
-        docs = list(db.scalars(select(Document).where(Document.id.in_(a.document_ids))))
         docs = sorted(docs, key=lambda d: a.document_ids.index(d.id))
         if any(d.deleted_at is not None or d.status != DocumentStatus.READY for d in docs):
             raise AnalysisFailureError("Um dos documentos foi removido ou não está mais indexado.")
         ws = docs[0].workspace_id
-        from app.models import Workspace
-
         workspace = db.get(Workspace, ws)
         rs = get_retrieval_settings(workspace) if workspace else None
         budget = rs.max_context_tokens if rs else settings.max_context_tokens

@@ -98,6 +98,7 @@ services:
     command: >
       celery -A app.workers.celery_app:celery_app worker
       --loglevel=INFO --concurrency=2 --max-tasks-per-child=50
+      -B --schedule=/tmp/celerybeat-schedule
     volumes:
       - ./backend:/app
     depends_on:

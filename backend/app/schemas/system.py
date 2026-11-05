@@ -30,6 +30,10 @@ class UsageLimits(BaseModel):
     uploads_per_hour: int
     max_upload_mb: int
     max_pdf_pages: int
+    monthly_token_budget: int | None = None
+    monthly_cost_budget_usd: float | None = None
+    max_documents: int | None = None
+    max_storage_mb: int | None = None
 
 
 class RetrievalSettingsOut(BaseModel):
@@ -48,14 +52,62 @@ class RetrievalSettingsPatch(BaseModel):
     rrf_k: int | None = None
 
 
+class WorkspaceLimitsOut(BaseModel):
+    monthly_token_budget: int | None
+    monthly_cost_budget_usd: float | None
+    max_documents: int | None
+    max_storage_mb: int | None
+
+
+class WorkspaceRetentionOut(BaseModel):
+    conversations_days: int | None
+    analyses_days: int | None
+    search_history_days: int | None
+    deleted_documents_days: int | None
+    last_run_at: str | None
+
+
+class WorkspaceAiOut(BaseModel):
+    llm_model: str | None
+    allowed_llm_models: list[str]
+    embedding_model: str
+    ocr_enabled: bool
+    ocr_available: bool
+
+
 class WorkspaceSettingsOut(BaseModel):
     external_ai_enabled: bool
     retrieval: RetrievalSettingsOut
+    limits: WorkspaceLimitsOut
+    retention: WorkspaceRetentionOut
+    ai: WorkspaceAiOut
+
+
+class WorkspaceLimitsPatch(BaseModel):
+    monthly_token_budget: int | None = None
+    monthly_cost_budget_usd: float | None = None
+    max_documents: int | None = None
+    max_storage_mb: int | None = None
+
+
+class WorkspaceRetentionPatch(BaseModel):
+    conversations_days: int | None = None
+    analyses_days: int | None = None
+    search_history_days: int | None = None
+    deleted_documents_days: int | None = None
+
+
+class WorkspaceAiPatch(BaseModel):
+    llm_model: str | None = None
+    ocr_enabled: bool | None = None
 
 
 class WorkspaceSettingsPatch(BaseModel):
     external_ai_enabled: bool | None = None
     retrieval: RetrievalSettingsPatch | None = None
+    limits: WorkspaceLimitsPatch | None = None
+    retention: WorkspaceRetentionPatch | None = None
+    ai: WorkspaceAiPatch | None = None
 
 
 class FeedbackSummary(BaseModel):
@@ -72,3 +124,9 @@ class UsageOut(BaseModel):
     estimated_cost_usd_month: float | None
     limits: UsageLimits
     feedback: FeedbackSummary
+    tokens_month_total: int = 0
+    budget_used_pct: float | None = None
+    documents_count: int = 0
+    storage_mb: float = 0.0
+    blocked: bool = False
+    blocked_reason: str | None = None

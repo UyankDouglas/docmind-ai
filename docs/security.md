@@ -15,10 +15,24 @@
 Double submit **validado no servidor**: o cookie legível `docmind_csrf` deve coincidir com o header
 `X-CSRF-Token` **e** com o token gravado na sessão. Toda rota `POST/PUT/PATCH/DELETE` exige isso.
 
+## Conta (Fase 5)
+
+- **Recuperação de senha**: token aleatório de uso único, com expiração curta (`PASSWORD_RESET_TTL_MINUTES`),
+  armazenado apenas como hash; resposta sempre 202 para não revelar e-mails existentes; redefinir a senha revoga
+  todas as sessões. Sem SMTP configurado o link é registrado no log do servidor (desenvolvimento).
+- **Alteração de senha** exige a senha atual e revoga as demais sessões.
+- **Sessões ativas**: o usuário vê dispositivo/IP/última atividade e pode revogar sessões individualmente ou todas as outras.
+- **Convites**: token aleatório com hash, expiração (`INVITATION_TTL_DAYS`), aceite restrito ao e-mail convidado;
+  remover um membro revoga imediatamente as sessões dele naquele workspace.
+
 ## Autorização e isolamento
 
-- Papéis por workspace: `admin`, `editor`, `viewer`. Upload/reprocessamento exigem admin/editor;
-  exclusão por editor só dos próprios documentos.
+- Papéis por workspace: `admin`, `editor`, `viewer`. Matriz completa em `docs/api-contract.md` (Fase 5):
+  upload/reprocessamento/coleções exigem admin/editor; exclusão de documentos por editor só dos próprios;
+  membros, convites, configurações (recuperação, IA, limites, retenção), auditoria e uso por usuário são
+  exclusivos de admin; o último administrador não pode ser rebaixado nem removido.
+- Um usuário pode pertencer a vários workspaces; o workspace ativo fica na sessão do servidor e só muda via
+  `POST /workspaces/switch` após verificar a associação.
 - O workspace ativo vem da sessão. IDs enviados pelo cliente (documentos, conversas, chunks) são
   sempre consultados com filtro de workspace; fora dele a resposta é 404 (não revela existência).
 - A busca vetorial filtra `workspace_id` nas três tabelas envolvidas e só retorna documentos
@@ -63,9 +77,23 @@ Defesas por prompt são complementares; a segurança depende das restrições do
 - Chaves de API só no servidor (variáveis de ambiente); `GET /settings/ai` expõe apenas nomes de
   provedor/modelo.
 
-### Limitações conhecidas (Fase 1)
+## Controle de uso e custos (Fase 5)
+
+- Limites por workspace (`limits`): orçamento mensal de tokens, teto mensal de custo estimado (só efetivo com
+  preços configurados), máximo de documentos e de armazenamento. Quando atingidos, perguntas, pesquisas, análises
+  e uploads são recusados com 429 **antes** de persistir qualquer coisa.
+- `GET /admin/usage` agrega consumo por usuário e por dia; `GET /audit` lista a trilha de auditoria com filtros e
+  exportação CSV/JSON (sem conteúdo de documentos).
+
+## Retenção (Fase 5)
+
+Política por workspace (`retention`): conversas, análises e histórico de pesquisas mais antigos que N dias são
+removidos; documentos excluídos (soft delete) são purgados do banco **e do MinIO** após N dias. Executa diariamente
+no Celery beat (`maintenance.apply_retention`) ou sob demanda por um administrador; cada execução é auditada.
+
+### Limitações conhecidas
 
 - Sem criptografia em repouso própria (depende do volume/MinIO).
-- Política de retenção e exclusão de conversas antigas ainda manual (Fase 5).
-- Recuperação de senha, 2FA e convites de membros ainda não implementados.
+- 2FA ainda não implementado.
+- Sem SMTP configurado, links de recuperação/convite só aparecem no log do servidor.
 - TLS depende do proxy (Caddy) em produção; em desenvolvimento os cookies não são `Secure`.

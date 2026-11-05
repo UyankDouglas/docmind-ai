@@ -33,7 +33,8 @@ from app.rag.retrieval import RetrievalScope, RetrievalService
 from app.services.audit import record_audit
 from app.services.auth import AuthContext
 from app.services.collections import resolve_collection_ids
-from app.services.retrieval_settings import get_retrieval_settings
+from app.services.limits import enforce_budget
+from app.services.retrieval_settings import get_retrieval_settings, workspace_llm_model
 from app.services.usage import enforce_question_limit, record_usage
 
 log = get_logger(__name__)
@@ -244,6 +245,7 @@ def ask_stream(
     O texto final só é persistido/emitido após a validação estrutural das citações.
     """
     enforce_question_limit(db, ctx.user.id)
+    enforce_budget(db, ctx.workspace)
 
     if document_ids is not None:
         conv.document_ids = _validate_document_scope(db, ctx, document_ids)
@@ -277,7 +279,7 @@ def ask_stream(
     # ---- provedores (sem provedor => resposta honesta de indisponibilidade)
     try:
         embedding_provider = get_embedding_provider()
-        llm = llm or get_llm_provider()
+        llm = llm or get_llm_provider(workspace_llm_model(ctx.workspace))
     except AIUnavailableError:
         assistant = _store_assistant(
             db,

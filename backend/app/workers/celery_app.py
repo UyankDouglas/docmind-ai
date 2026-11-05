@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -29,4 +30,10 @@ celery_app.conf.update(
     task_eager_propagates=True,
     broker_connection_retry_on_startup=True,
     task_default_queue="documents",
+    beat_schedule={
+        "apply-retention-daily": {
+            "task": "maintenance.apply_retention",
+            "schedule": crontab(hour=settings.retention_run_hour_utc, minute=15),
+        },
+    },
 )

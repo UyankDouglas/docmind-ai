@@ -62,10 +62,40 @@ def validate_retrieval_patch(patch: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
+def workspace_llm_model(workspace: Workspace) -> str | None:
+    """Modelo escolhido pelo workspace (só se ainda estiver na lista permitida)."""
+    chosen = ((workspace.settings or {}).get("ai") or {}).get("llm_model")
+    if chosen and chosen in settings.llm_allowed_model_list:
+        return chosen
+    return None
+
+
+def workspace_ocr_enabled(workspace: Workspace) -> bool:
+    from app.providers.ocr import ocr_available
+
+    return bool(((workspace.settings or {}).get("ai") or {}).get("ocr_enabled")) and ocr_available()
+
+
 def workspace_settings_out(workspace: Workspace) -> dict[str, Any]:
+    from app.providers.ocr import ocr_available
+    from app.services.limits import get_limits
+    from app.services.retention import get_policy
+
+    ai_raw = (workspace.settings or {}).get("ai") or {}
     return {
         "external_ai_enabled": workspace.external_ai_enabled,
         "retrieval": get_retrieval_settings(workspace).to_dict(),
+        "limits": get_limits(workspace).to_dict(),
+        "retention": get_policy(workspace).to_dict(),
+        "ai": {
+            "llm_model": workspace_llm_model(workspace),
+            "allowed_llm_models": settings.llm_allowed_model_list,
+            "embedding_model": settings.embedding_model
+            if settings.embedding_provider != "fake"
+            else "fake-hash-v1",
+            "ocr_enabled": bool(ai_raw.get("ocr_enabled")) and ocr_available(),
+            "ocr_available": ocr_available(),
+        },
     }
 
 
@@ -75,6 +105,9 @@ def update_workspace_settings(
     *,
     external_ai_enabled: bool | None,
     retrieval: dict[str, Any] | None,
+    limits: dict[str, Any] | None = None,
+    retention: dict[str, Any] | None = None,
+    ai: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if ctx.role != WorkspaceRole.ADMIN:
         raise ForbiddenError("Somente administradores alteram as configurações do workspace.")
@@ -88,6 +121,35 @@ def update_workspace_settings(
         clean = validate_retrieval_patch(retrieval)
         current["retrieval"] = {**(current.get("retrieval") or {}), **clean}
         changes["retrieval"] = clean
+    if limits:
+        from app.services.limits import validate_limits_patch
+
+        clean = validate_limits_patch(limits)
+        current["limits"] = {**(current.get("limits") or {}), **clean}
+        changes["limits"] = clean
+    if retention:
+        from app.services.retention import validate_retention_patch
+
+        clean = validate_retention_patch(retention)
+        current["retention"] = {**(current.get("retention") or {}), **clean}
+        changes["retention"] = clean
+    if ai:
+        from app.providers.ocr import ocr_available
+
+        ai_current = dict(current.get("ai") or {})
+        if "llm_model" in ai:
+            model = ai["llm_model"]
+            if model is not None and model not in settings.llm_allowed_model_list:
+                raise ValidationAppError("Modelo não permitido neste servidor.")
+            ai_current["llm_model"] = model
+        if "ocr_enabled" in ai:
+            if ai["ocr_enabled"] and not ocr_available():
+                raise ValidationAppError(
+                    "OCR não está disponível neste servidor (ver docs/ocr-evaluation.md)."
+                )
+            ai_current["ocr_enabled"] = bool(ai["ocr_enabled"])
+        current["ai"] = ai_current
+        changes["ai"] = ai_current
     ws.settings = current  # reatribuição: JSONB precisa de novo objeto para ser detectado
     record_audit(
         db,

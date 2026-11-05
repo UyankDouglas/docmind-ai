@@ -142,7 +142,19 @@ def usage_summary(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> d
         )
         or 0
     )
+    from app.models import Workspace
+    from app.services.limits import budget_status, get_limits
+
+    workspace = db.get(Workspace, workspace_id)
+    status = budget_status(db, workspace) if workspace else None
+    limits = get_limits(workspace).to_dict() if workspace else {}
     return {
+        "tokens_month_total": status.tokens_month_total if status else 0,
+        "budget_used_pct": status.budget_used_pct if status else None,
+        "documents_count": status.documents_count if status else 0,
+        "storage_mb": status.storage_mb if status else 0.0,
+        "blocked": bool(status and status.blocked),
+        "blocked_reason": status.blocked_reason if status else None,
         "feedback": {
             "positive": int(fb[0] or 0),
             "negative": int(fb[1] or 0),
@@ -158,5 +170,6 @@ def usage_summary(db: Session, workspace_id: uuid.UUID, user_id: uuid.UUID) -> d
             "uploads_per_hour": settings.rate_limit_uploads_per_hour,
             "max_upload_mb": settings.max_upload_mb,
             "max_pdf_pages": settings.max_pdf_pages,
+            **limits,
         },
     }

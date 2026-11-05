@@ -12,6 +12,7 @@ from app.models.base import utcnow
 from app.providers.embeddings import get_embedding_provider
 from app.rag.retrieval import RetrievalResult, RetrievalScope, RetrievalService
 from app.services.auth import AuthContext
+from app.services.limits import enforce_budget
 from app.services.retrieval_settings import get_retrieval_settings
 from app.services.usage import record_usage
 
@@ -26,6 +27,7 @@ def run_search(
     top_k: int | None,
     mode: str | None,
 ) -> RetrievalResult:
+    enforce_budget(db, ctx.workspace)
     provider = get_embedding_provider()  # 503 ai_unavailable se não configurado
     rs = get_retrieval_settings(ctx.workspace)
     scope = RetrievalScope(

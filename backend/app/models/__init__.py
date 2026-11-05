@@ -21,6 +21,7 @@ from app.models.enums import (
     UsageKind,
     WorkspaceRole,
 )
+from app.models.membership import Invitation, PasswordResetToken
 from app.models.search import SearchQuery
 from app.models.usage import AuditLog, UsageRecord
 from app.models.user import User, UserSession
@@ -39,12 +40,14 @@ __all__ = [
     "DocumentVersion",
     "EmbeddingRecord",
     "Feedback",
+    "Invitation",
     "JobStatus",
     "JobType",
     "Message",
     "MessageCitation",
     "MessageRole",
     "MessageStatus",
+    "PasswordResetToken",
     "ProcessingJob",
     "SearchQuery",
     "UsageKind",
