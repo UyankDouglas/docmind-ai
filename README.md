@@ -48,7 +48,7 @@ Resposta: "O contrato pode ser rescindido mediante aviso prévio de 45 dias [1]�
 Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o PDF na página, com o trecho
 ```
 
-## Funcionalidades (Fases 1 a 5)
+## Funcionalidades (Fases 1 a 6)
 
 - Cadastro, login, logout; workspace pessoal criado automaticamente; papéis admin/editor/viewer.
 - Biblioteca de documentos: upload de **PDF, DOCX e TXT** (drag-and-drop, fila com múltiplos envios), status real de
@@ -74,9 +74,30 @@ Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o
   com matriz aplicada no backend, limites de uso e custo por workspace, uso por usuário e por dia, auditoria consultável e
   exportável, políticas de retenção automáticas, recuperação e alteração de senha, sessões ativas, escolha de modelo
   entre os permitidos e OCR opcional (Tesseract) após avaliação técnica.
+- **Avaliação e qualidade**: módulo de avaliação RAG reproduzível (43 perguntas anotadas, Recall@K, citações válidas,
+  sustentação, abstenção, testes adversariais, latência, tokens, custo) com relatório versionado; suíte E2E Playwright;
+  revisão de segurança documentada; CI com lint, testes, auditoria de dependências, build das imagens e E2E.
 - Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, **parâmetros de
   recuperação por workspace** (modo, top_k, limiar, contexto) editáveis por administradores, tema claro/escuro.
 - Controle de uso: limites de perguntas/uploads por hora, tamanho e páginas por arquivo, tokens de contexto e saída.
+
+## Screenshots
+
+Capturadas automaticamente pela suíte E2E (`e2e/screenshots.spec.ts`) contra a stack Docker com documentos fictícios.
+
+| | |
+|---|---|
+| ![Login](docs/screenshots/01-login.png) | ![Dashboard](docs/screenshots/02-dashboard.png) |
+| ![Biblioteca](docs/screenshots/03-biblioteca.png) | ![Visualizador PDF](docs/screenshots/04-visualizador-pdf.png) |
+| ![Chat com citações](docs/screenshots/05-chat-citacoes.png) | ![Pesquisa híbrida](docs/screenshots/06-pesquisa-hibrida.png) |
+| ![Como a resposta foi gerada](docs/screenshots/07-evidencias.png) | ![Comparação](docs/screenshots/08-comparacao.png) |
+| ![Administração: uso](docs/screenshots/09-admin-uso.png) | ![Configurações](docs/screenshots/10-configuracoes.png) |
+
+## Demonstração
+
+Para uma demo pública use apenas os documentos fictícios de `samples/`: `scripts/seed_demo.py` cria a conta, a coleção e
+envia os arquivos (passo a passo em [docs/deploy.md](docs/deploy.md#demo-pública-com-documentos-fictícios)). Sem chave de
+provedor, a interface deixa claro que as respostas vêm de um provedor determinístico de testes.
 
 ## Arquitetura
 
@@ -116,7 +137,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (102 testes), Vitest + Testing Library (102 testes), Playwright (Fase 6) |
+| Testes | Pytest (106 testes), Vitest + Testing Library (102 testes), Playwright E2E (8 testes + screenshots) |
 
 ## Como executar
 
@@ -162,6 +183,9 @@ cd backend && uv sync && uv run pytest
 
 # frontend
 cd apps/web && pnpm install && pnpm test
+
+# E2E (com a stack Docker no ar; ver e2e/README.md)
+cd e2e && pnpm install && pnpm exec playwright install chromium && pnpm test
 ```
 
 O que é coberto: autenticação, CSRF, isolamento entre workspaces (API, download, chunks e busca
@@ -172,17 +196,20 @@ limites de uso, feedback e histórico. Detalhes em [docs/evaluation.md](docs/eva
 
 ## Segurança
 
-Argon2id, sessões no servidor, cookies HttpOnly, CSRF double-submit validado contra a sessão, rate
+Revisão de segurança da Fase 6 em [docs/security-review.md](docs/security-review.md). Argon2id, sessões no servidor, cookies HttpOnly, CSRF double-submit validado contra a sessão, rate
 limiting, RBAC, isolamento por workspace em todas as consultas (inclusive vetoriais), validação de
 assinatura e limites de upload, nomes internos aleatórios, downloads autenticados, documentos tratados
 como dados não confiáveis (sem ferramentas para o modelo). Ver [docs/security.md](docs/security.md).
 
 ## Avaliação do RAG
 
-A Fase 1 entrega a base: documentos sintéticos com fatos em páginas conhecidas, provedores
-determinísticos e testes que verificam recuperação, citação e abstenção. O conjunto com ≥ 30 perguntas,
-métricas (Recall@K, citações válidas, sustentação factual, abstenção correta, latência, tokens, custo) e
-relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada sem esses testes.**
+`python -m app.rag.evaluation` roda um dataset de **43 perguntas anotadas** (diretas, por página, cruzando documentos,
+nomes semelhantes, contradições, sem resposta, maliciosas e com escopo restrito) sobre cinco documentos sintéticos e
+gera um relatório versionado em [docs/evaluation/latest.md](docs/evaluation/latest.md) com Recall@K/Precision@K/MRR,
+citações válidas e relevantes, sustentação pelas fontes (juiz declarado), abstenção correta, perguntas maliciosas
+obedecidas, latência, tokens e custo. O resultado atual foi obtido com o provedor determinístico `fake` e **mede a
+mecânica do pipeline, não a qualidade de um LLM real** — a leitura detalhada está em
+[docs/evaluation.md](docs/evaluation.md). Nenhuma nota é publicada sem execução reproduzível.
 
 ## Limitações atuais
 
@@ -205,6 +232,6 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 | 3 | Busca híbrida, streaming, configurações de recuperação | ✅ concluída e validada com a stack Docker |
 | 4 | Resumos hierárquicos, comparação entre documentos, exportação | ✅ concluída e validada com a stack Docker |
 | 5 | Administração, limites de custo, auditoria, retenção, OCR | ✅ concluída e validada com a stack Docker |
-| 6 | Avaliação RAG, E2E, benchmark, revisão de segurança, demo pública | ⏳ |
+| 6 | Avaliação RAG, E2E, benchmark, revisão de segurança, demo pública | ✅ concluída (demo pública depende de hospedagem do autor) |
 
 Acompanhamento detalhado em [PROGRESS.md](PROGRESS.md).

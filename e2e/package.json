@@ -1,0 +1,19 @@
+{
+  "name": "@docmind/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Testes E2E (Playwright) do DocMind AI contra uma stack em execução",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "screenshots": "playwright test --project=screenshots",
+    "install-browsers": "playwright install chromium",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.10.0",
+    "typescript": "^5.9.3"
+  }
+}

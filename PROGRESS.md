@@ -5,9 +5,38 @@
 
 ## Fase atual
 
-**Fase 5 — Administração e Segurança: concluída e validada com a stack Docker completa** (05/11/2026).
-Fases 1 a 4 concluídas anteriormente. Pendente apenas a execução com `OPENAI_API_KEY` real
-(o `.env` local usa provedores `fake`). Próxima: **Fase 6 — Avaliação e Produção**.
+**Fase 6 — Avaliação e Produção: concluída** (05/11/2026). Todas as seis fases planejadas estão implementadas e
+validadas com a stack Docker. Pendências que dependem do autor: executar com `OPENAI_API_KEY` real (e registrar a
+avaliação com `--judge llm`) e hospedar a demo pública.
+
+## Funcionalidades concluídas (Fase 6)
+
+- [x] **Avaliação RAG reproduzível** (`backend/app/rag/evaluation/`): dataset de 43 perguntas anotadas sobre 5 documentos
+  sintéticos (novo aditivo contraditório), runner que indexa pelo pipeline real e responde pelo serviço do chat, métricas
+  (Recall@K, Precision@K, MRR, citações válidas/relevantes, sustentação por juiz `keyword-proxy` ou LLM, abstenção,
+  obediência maliciosa, latência, tokens, custo, benchmark), relatório JSON+Markdown com versão/commit/hash do dataset.
+  Resultado atual (fake): Recall@K 1.0, Precision@K 0.41, MRR 0.84, citações válidas 100%, 0 maliciosas obedecidas,
+  abstenção indevida 0%, abstenção quando não há resposta 33% (limite do provedor fake). Leitura em `docs/evaluation.md`.
+- [x] **Melhoria de recuperação achada pela avaliação**: FTS com AND e fallback OR (recall 0.57 → 1.0 no dataset).
+- [x] **Testes adversariais** no dataset (m01/m02) e nos testes de API; **benchmark** de recuperação/indexação no relatório.
+- [x] **E2E Playwright** (`e2e/`): 8 testes (auth, fluxo RAG completo até o PDF e o histórico, biblioteca com DOCX/TXT e
+  coleções, pesquisa híbrida + admin + convite, sem evidência) e spec de screenshots; duas rodadas verdes.
+- [x] **Revisão de segurança** (`docs/security-review.md`) com correções: CSP/Permissions-Policy no Caddy, recusa de
+  `SECRET_KEY` padrão em produção, e-mail mascarado no convite público, auditoria de dependências no CI.
+- [x] **CI/CD ampliado**: lint+testes, typecheck+lint+vitest+build, Compose config, `pip-audit`/`pnpm audit`, build das
+  imagens de produção (buildx com cache), E2E contra a stack Docker.
+- [x] **Docker de produção** revisado (usuário não root, Caddy com headers, beat embutido, sem portas internas expostas).
+- [x] **Screenshots** reais em `docs/screenshots/` e galeria no README; `scripts/seed_demo.py` e guia de demo pública.
+
+## Testes executados (Fase 6, 05/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **106 passed** (4 novos: dataset válido, métricas, juiz, runner em subconjunto com relatório) |
+| Avaliação completa (`python -m app.rag.evaluation`, fake) | 43 perguntas, 0 erros — `docs/evaluation/latest.md` |
+| Frontend `typecheck`, `lint`, `test`, `build` | inalterados: 0 erros, **102 passed**, build OK |
+| E2E Playwright contra a stack Docker | **8 passed** em duas rodadas; screenshots geradas (10 PNG 1440×900) |
+| CI | ver execução no GitHub após o push desta fase (inclui os jobs novos) |
 
 ## Funcionalidades concluídas (Fase 5)
 
@@ -170,6 +199,9 @@ configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e
 - Sem 2FA; sem SMTP configurado os links de convite/recuperação só aparecem no log do servidor (o admin pode copiar o link do convite na UI).
 - OCR só funciona com Tesseract instalado no servidor (a imagem Docker padrão não o inclui); PDFs digitalizados com imagens não extraíveis pelo pypdf continuam sem texto.
 - Teto de custo mensal só é efetivo quando `PRICE_*_PER_1M` estão configurados; sem preços o sistema não estima custo.
+- A avaliação com provedor `fake` não mede qualidade semântica; o juiz `keyword-proxy` é lexical. Rodar com `--judge llm` e chave real.
+- A suíte E2E cadastra um usuário por teste; o limite de 10 cadastros/min por IP exige `RATE_LIMIT_LOGIN_PER_MINUTE` maior para rodadas repetidas (o CI já ajusta).
+- O job E2E do CI sobe a stack inteira com `docker compose up --build` (alguns minutos por execução).
 - E-mails com domínios reservados (ex.: `.local`) são rejeitados pelo validador; a mensagem agora é traduzida.
 
 ## Decisões de arquitetura
@@ -182,7 +214,7 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
    `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
-2. Iniciar a **Fase 6** (Avaliação e produção): módulo de avaliação RAG com ≥ 30 perguntas sobre os documentos
-   sintéticos (Recall@K, citações válidas, sustentação factual, abstenção correta, latência, tokens, custo), testes
-   adversariais, benchmark, Playwright E2E, revisão de segurança, Docker de produção revisado, screenshots e demo pública.
-3. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).
+2. Hospedar a demo pública (TLS + `APP_BASE_URL` + `scripts/seed_demo.py`) e registrar o link no README.
+3. Com chave real, rodar `python -m app.rag.evaluation --judge llm` e comparar alvos de chunk/`top_k`/limiar.
+4. Evoluções fora do plano original: 2FA, reranker neural, rasterização para OCR, exportação PDF/DOCX.
+5. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).

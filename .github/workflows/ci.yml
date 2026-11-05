@@ -139,7 +139,7 @@ jobs:
       - name: Preparar .env (provedores fake)
         run: |
           cp .env.example .env
-          sed -i 's/^EMBEDDING_PROVIDER=.*/EMBEDDING_PROVIDER=fake/; s/^LLM_PROVIDER=.*/LLM_PROVIDER=fake/' .env
+          sed -i 's/^EMBEDDING_PROVIDER=.*/EMBEDDING_PROVIDER=fake/; s/^LLM_PROVIDER=.*/LLM_PROVIDER=fake/; s/^RATE_LIMIT_LOGIN_PER_MINUTE=.*/RATE_LIMIT_LOGIN_PER_MINUTE=100/' .env
           sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$(openssl rand -hex 32)/" .env
       - name: Subir a stack
         run: |

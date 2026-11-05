@@ -76,7 +76,23 @@ Checklist mínimo:
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
+## Demo pública com documentos fictícios
+
+1. Suba a stack de produção em um host com TLS (Caddy na frente) e `APP_BASE_URL` apontando para o domínio.
+2. Configure `OPENAI_API_KEY` (ou mantenha `EMBEDDING_PROVIDER=fake`/`LLM_PROVIDER=fake` para uma demo sem custo —
+   a interface informa que as respostas não vêm de um modelo real).
+3. Gere os documentos fictícios e semeie a conta de demonstração:
+   ```bash
+   cd backend && uv run python ../scripts/generate_samples.py
+   uv run python ../scripts/seed_demo.py --base https://demo.seu-dominio --email demo@seu-dominio --password '<senha-forte>'
+   ```
+   O script cria (ou reaproveita) a conta, uma coleção "Documentos de demonstração" e envia os cinco arquivos de `samples/`.
+4. Em Administração → Limites e custos, defina um orçamento mensal de tokens e `max_documents` para conter abuso;
+   em Retenção, configure a limpeza automática (ex.: conversas 7 dias, documentos excluídos 1 dia).
+5. Nunca publique documentos reais na demo: os arquivos de `samples/` são sintéticos por desenho.
+
 ## CI
 
-`.github/workflows/ci.yml` executa: ruff + migrations do zero + pytest (com serviço pgvector),
-typecheck + lint + vitest + build do frontend e validação dos arquivos Compose.
+`.github/workflows/ci.yml` executa: ruff + migrations do zero + pytest (com serviço pgvector), typecheck + lint +
+vitest + build do frontend, validação dos arquivos Compose, auditoria de dependências (`pip-audit`, `pnpm audit`),
+build das imagens de produção e a suíte E2E com Playwright contra a stack Docker (provedores `fake`).
