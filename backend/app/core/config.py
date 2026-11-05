@@ -5,8 +5,25 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import computed_field, field_validator
+from pydantic import computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ProviderName = Literal["openai", "gemini", "fake"]
+
+# Modelos padrão por provedor (sobrescritos por EMBEDDING_MODEL / LLM_MODEL).
+DEFAULT_EMBEDDING_MODELS: dict[str, str] = {
+    "gemini": "gemini-embedding-001",
+    "openai": "text-embedding-3-small",
+    "fake": "fake-hash-v1",
+}
+DEFAULT_LLM_MODELS: dict[str, str] = {
+    "gemini": "gemini-3.5-flash-lite",
+    "openai": "gpt-4o-mini",
+    "fake": "fake-llm-v1",
+}
+# Variável de ambiente que guarda a chave de cada provedor real.
+PROVIDER_KEY_ENV: dict[str, str] = {"gemini": "GEMINI_API_KEY", "openai": "OPENAI_API_KEY"}
+GEMINI_THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH")
 
 
 class Settings(BaseSettings):
@@ -54,15 +71,27 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     # --- IA ---
-    embedding_provider: Literal["openai", "fake"] = "openai"
-    llm_provider: Literal["openai", "fake"] = "openai"
+    # "gemini" (Google Gemini API, padrão), "openai" ou "fake" (determinístico, só testes/dev)
+    embedding_provider: ProviderName = "gemini"
+    llm_provider: ProviderName = "gemini"
+    gemini_api_key: str | None = None
     openai_api_key: str | None = None
     openai_base_url: str | None = None
-    embedding_model: str = "text-embedding-3-small"
+    # Vazio => padrão do provedor (ver DEFAULT_*_MODELS)
+    embedding_model: str = ""
     embedding_dimensions: int = 1536
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = ""
     llm_timeout_seconds: float = 60.0
     llm_max_retries: int = 3
+    # Backoff exponencial com jitter entre tentativas (segundos)
+    provider_retry_base_seconds: float = 1.0
+    provider_retry_max_seconds: float = 20.0
+    # Gemini: nível de raciocínio (MINIMAL/LOW/MEDIUM/HIGH; vazio = padrão do modelo) e se a
+    # temperatura pedida pela aplicação deve ser enviada (a Google recomenda manter o padrão
+    # nos modelos Gemini 3; por isso o padrão aqui é não enviar).
+    gemini_thinking_level: str | None = None
+    gemini_apply_temperature: bool = False
+    gemini_embedding_batch_size: int = 100
     # Preços opcionais (USD por 1M tokens) para estimativa de custo. Sem valor => custo não estimado.
     price_embedding_per_1m: float | None = None
     price_llm_input_per_1m: float | None = None
@@ -120,6 +149,36 @@ class Settings(BaseSettings):
     def _strip_origins(cls, v: str) -> str:
         return ",".join(o.strip() for o in v.split(",") if o.strip())
 
+    @field_validator("gemini_thinking_level", mode="before")
+    @classmethod
+    def _normalize_thinking_level(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = str(v).strip().upper()
+        if not value:
+            return None
+        if value not in GEMINI_THINKING_LEVELS:
+            raise ValueError(
+                f"GEMINI_THINKING_LEVEL inválido: {value}. Use {', '.join(GEMINI_THINKING_LEVELS)}."
+            )
+        return value
+
+    @field_validator("gemini_api_key", "openai_api_key", mode="before")
+    @classmethod
+    def _blank_key_is_none(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        value = str(v).strip()
+        return value or None
+
+    @model_validator(mode="after")
+    def _default_models_per_provider(self) -> Settings:
+        if not self.embedding_model.strip():
+            self.embedding_model = DEFAULT_EMBEDDING_MODELS[self.embedding_provider]
+        if not self.llm_model.strip():
+            self.llm_model = DEFAULT_LLM_MODELS[self.llm_provider]
+        return self
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def cors_origin_list(self) -> list[str]:
@@ -151,13 +210,57 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         return self.max_upload_mb * 1024 * 1024
 
+    # ------------------------------------------------------------------ provedores de IA
+    def provider_api_key(self, provider: str) -> str | None:
+        if provider == "gemini":
+            return self.gemini_api_key
+        if provider == "openai":
+            return self.openai_api_key
+        return None
+
+    def provider_configured(self, provider: str) -> bool:
+        """`fake` está sempre disponível; provedores reais exigem a própria chave."""
+        if provider == "fake":
+            return True
+        return bool(self.provider_api_key(provider))
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def embedding_configured(self) -> bool:
+        return self.provider_configured(self.embedding_provider)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def llm_configured(self) -> bool:
+        return self.provider_configured(self.llm_provider)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def using_fake_ai(self) -> bool:
+        return self.embedding_provider == "fake" and self.llm_provider == "fake"
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def ai_configured(self) -> bool:
-        """Indica se há um provedor real de IA configurado (chave presente)."""
-        if self.embedding_provider == "fake" and self.llm_provider == "fake":
+        """Há IA real pronta para uso: ambos os provedores selecionados têm a chave de que precisam.
+
+        Falso quando os dois são `fake` (não é IA real) e quando falta a chave de qualquer um dos
+        dois provedores obrigatórios (embeddings e geração) — nunca "meio configurado".
+        """
+        if self.using_fake_ai:
             return False
-        return bool(self.openai_api_key)
+        return self.embedding_configured and self.llm_configured
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def missing_ai_configuration(self) -> list[str]:
+        """Nomes das variáveis de ambiente que faltam (sem valores)."""
+        missing: list[str] = []
+        for provider in (self.embedding_provider, self.llm_provider):
+            env_name = PROVIDER_KEY_ENV.get(provider)
+            if env_name and not self.provider_configured(provider) and env_name not in missing:
+                missing.append(env_name)
+        return missing
 
     @computed_field  # type: ignore[prop-decorator]
     @property

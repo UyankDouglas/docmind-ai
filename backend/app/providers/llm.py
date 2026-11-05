@@ -2,6 +2,10 @@
 
 O modelo recebe apenas: instruções do sistema, evidências delimitadas e a pergunta.
 Nenhuma ferramenta de execução é exposta ao modelo.
+
+Implementações: `GeminiLLMProvider` (`app.providers.gemini`, padrão), `OpenAILLMProvider` e
+`FakeLLMProvider` (determinístico, só testes). O modelo vem de LLM_MODEL ou da escolha do
+workspace dentro de LLM_ALLOWED_MODELS.
 """
 
 from __future__ import annotations
@@ -213,41 +217,42 @@ class FakeLLMProvider:
         yield result
 
 
+def build_llm_provider(model: str | None = None) -> LLMProvider:
+    """Constrói o provedor configurado para `model` (ou o padrão), sem cache."""
+    from app.providers.embeddings import unconfigured_message
+
+    provider = settings.llm_provider
+    model = model or settings.llm_model
+    if provider == "fake":
+        return FakeLLMProvider(
+            model=f"fake-{model}" if model != settings.llm_model else "fake-llm-v1"
+        )
+    api_key = settings.provider_api_key(provider)
+    if not api_key:
+        raise AIUnavailableError(unconfigured_message("llm", provider))
+    if provider == "gemini":
+        from app.providers.gemini import GeminiLLMProvider
+
+        return GeminiLLMProvider(api_key=api_key, model=model)
+    return OpenAILLMProvider(api_key=api_key, model=model, base_url=settings.openai_base_url)
+
+
 _provider: LLMProvider | None = None
 _by_model: dict[str, LLMProvider] = {}
 
 
 def get_llm_provider(model: str | None = None) -> LLMProvider:
+    """Provedor padrão (cacheado) ou um provedor por modelo alternativo permitido ao workspace.
+
+    Quando um provedor foi injetado com `set_llm_provider` (testes), ele vale para qualquer modelo.
+    """
     global _provider
     if model and model != settings.llm_model and _provider is None:
         if model not in _by_model:
-            if settings.llm_provider == "fake":
-                _by_model[model] = FakeLLMProvider(model=f"fake-{model}")
-            elif not settings.openai_api_key:
-                raise AIUnavailableError(
-                    "Provedor de linguagem não configurado: defina OPENAI_API_KEY "
-                    "ou LLM_PROVIDER=fake para desenvolvimento."
-                )
-            else:
-                _by_model[model] = OpenAILLMProvider(
-                    api_key=settings.openai_api_key, model=model, base_url=settings.openai_base_url
-                )
+            _by_model[model] = build_llm_provider(model)
         return _by_model[model]
-    if _provider is not None:
-        return _provider
-    if settings.llm_provider == "fake":
-        _provider = FakeLLMProvider()
-    else:
-        if not settings.openai_api_key:
-            raise AIUnavailableError(
-                "Provedor de linguagem não configurado: defina OPENAI_API_KEY "
-                "ou LLM_PROVIDER=fake para desenvolvimento."
-            )
-        _provider = OpenAILLMProvider(
-            api_key=settings.openai_api_key,
-            model=settings.llm_model,
-            base_url=settings.openai_base_url,
-        )
+    if _provider is None:
+        _provider = build_llm_provider()
     return _provider
 
 

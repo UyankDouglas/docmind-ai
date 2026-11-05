@@ -37,7 +37,15 @@ def configure_logging() -> None:
     )
 
     # Reduz ruído de bibliotecas
-    for noisy in ("httpx", "httpcore", "urllib3", "openai", "pypdf"):
+    for noisy in (
+        "httpx",
+        "httpcore",
+        "urllib3",
+        "openai",
+        "pypdf",
+        "google_genai",
+        "google.genai",
+    ):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
