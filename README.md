@@ -48,7 +48,7 @@ Resposta: "O contrato pode ser rescindido mediante aviso prévio de 45 dias [1]�
 Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o PDF na página, com o trecho
 ```
 
-## Funcionalidades (Fases 1 a 4)
+## Funcionalidades (Fases 1 a 5)
 
 - Cadastro, login, logout; workspace pessoal criado automaticamente; papéis admin/editor/viewer.
 - Biblioteca de documentos: upload de **PDF, DOCX e TXT** (drag-and-drop, fila com múltiplos envios), status real de
@@ -70,6 +70,10 @@ Fonte [1]: contrato-prestacao-servicos.pdf — Página 4   ← clicável: abre o
   entre 2–5 documentos com evidências rotuladas (A, B…), extração de tópicos, perguntas sugeridas e exportação de
   análises e conversas em Markdown/JSON. Toda análise traz fontes, cobertura (trechos lidos/total, estratégia) e
   limitações geradas pelo backend.
+- **Administração e segurança**: múltiplos workspaces por usuário, convites por e-mail/link, papéis admin/editor/viewer
+  com matriz aplicada no backend, limites de uso e custo por workspace, uso por usuário e por dia, auditoria consultável e
+  exportável, políticas de retenção automáticas, recuperação e alteração de senha, sessões ativas, escolha de modelo
+  entre os permitidos e OCR opcional (Tesseract) após avaliação técnica.
 - Configurações: perfil, workspace, membros, status/aviso de privacidade da IA, uso e limites, **parâmetros de
   recuperação por workspace** (modo, top_k, limiar, contexto) editáveis por administradores, tema claro/escuro.
 - Controle de uso: limites de perguntas/uploads por hora, tamanho e páginas por arquivo, tokens de contexto e saída.
@@ -112,7 +116,7 @@ Cada etapa é um módulo em `backend/app/rag/` e está explicada em [docs/rag-pi
 | Processamento | pypdf, python-docx, charset_normalizer, tiktoken, chunking e metadados próprios |
 | IA | Camada de adaptadores (`providers/`): OpenAI (embeddings + chat) ou provedores determinísticos para testes; modelos por variáveis de ambiente |
 | Infra | Docker Compose (pgvector/pg17, Redis 7, MinIO, API, worker, web), Caddy (produção), GitHub Actions |
-| Testes | Pytest (96 testes), Vitest + Testing Library (83 testes), Playwright (Fase 6) |
+| Testes | Pytest (102 testes), Vitest + Testing Library (102 testes), Playwright (Fase 6) |
 
 ## Como executar
 
@@ -200,7 +204,7 @@ relatório reproduzível vem na Fase 6. **Nenhuma nota de qualidade é publicada
 | 2 | Biblioteca documental: DOCX/TXT, coleções, tags, versionamento | ✅ concluída e validada com a stack Docker |
 | 3 | Busca híbrida, streaming, configurações de recuperação | ✅ concluída e validada com a stack Docker |
 | 4 | Resumos hierárquicos, comparação entre documentos, exportação | ✅ concluída e validada com a stack Docker |
-| 5 | Administração, limites de custo, auditoria, retenção, OCR | ⏳ |
+| 5 | Administração, limites de custo, auditoria, retenção, OCR | ✅ concluída e validada com a stack Docker |
 | 6 | Avaliação RAG, E2E, benchmark, revisão de segurança, demo pública | ⏳ |
 
 Acompanhamento detalhado em [PROGRESS.md](PROGRESS.md).

@@ -5,9 +5,37 @@
 
 ## Fase atual
 
-**Fase 4 — Inteligência Documental: concluída e validada com a stack Docker completa** (05/11/2026).
-Fases 1 a 3 concluídas em 04/11/2026. Pendente apenas a execução com `OPENAI_API_KEY` real
-(o `.env` local usa provedores `fake`).
+**Fase 5 — Administração e Segurança: concluída e validada com a stack Docker completa** (05/11/2026).
+Fases 1 a 4 concluídas anteriormente. Pendente apenas a execução com `OPENAI_API_KEY` real
+(o `.env` local usa provedores `fake`). Próxima: **Fase 6 — Avaliação e Produção**.
+
+## Funcionalidades concluídas (Fase 5)
+
+- [x] **Membros e convites**: convite por e-mail/link (token com hash, expiração, aceite restrito ao e-mail convidado),
+  alteração de papel com proteção do último administrador, remoção com revogação imediata das sessões no workspace.
+- [x] **Múltiplos workspaces por usuário**: `GET /workspaces`, `POST /workspaces/switch` (troca na sessão do servidor),
+  switcher na topbar, renomear workspace (admin).
+- [x] **Conta**: recuperação de senha (token de uso único, 202 neutro, revoga sessões), alteração de senha (revoga as
+  outras sessões), listagem e revogação de sessões ativas; e-mail por SMTP ou registrado no log (dev).
+- [x] **Permissões**: matriz admin/editor/viewer aplicada no backend (documentada em `docs/api-contract.md`).
+- [x] **Limites e custos por workspace**: orçamento mensal de tokens, teto de custo (quando há preços), máximo de
+  documentos e armazenamento — recusados com 429 **antes** de persistir; `/usage` expõe `blocked` e a UI mostra banner.
+- [x] **Administração**: `/admin/usage` (por usuário e por dia), `/audit` com filtros e exportação CSV/JSON, área `/admin`.
+- [x] **Retenção**: política por workspace (conversas, análises, histórico de pesquisas, purga de documentos excluídos
+  do banco e do MinIO), aplicada diariamente pelo Celery beat (worker com `-B`) e sob demanda; auditada.
+- [x] **Provedores**: modelo LLM por workspace a partir de `LLM_ALLOWED_MODELS`; toggle de IA externa; chaves só no servidor.
+- [x] **OCR opcional**: avaliação técnica em `docs/ocr-evaluation.md`; adaptador Tesseract (`uv sync --extra ocr`),
+  desligado por padrão, ativável por workspace só quando disponível; texto de OCR marcado com aviso.
+- [x] Migração `55240cc801dd`.
+
+## Testes executados (Fase 5, 05/11/2026)
+
+| Suíte | Resultado |
+|---|---|
+| Pytest contra PostgreSQL+pgvector do Compose | **102 passed** (6 novos, abrangentes: convite → aceite → troca de workspace → papéis → remoção com revogação; reset/alteração de senha e sessões; limites de tokens/documentos bloqueando chat, busca, análises e upload; uso administrativo e auditoria com exportação e 403 para não-admin; retenção purgando conversas, pesquisas e documentos excluídos; modelo por workspace e OCR com provedor fake) |
+| Ruff + `alembic upgrade head` + `alembic check` | OK, sem drift |
+| Frontend `typecheck`, `lint`, `test`, `build` | 0 erros TS, 0 erros ESLint (35 warnings `react-refresh`), **102 passed**, build OK |
+| Fluxo manual no navegador (stack Docker) | `/admin`: membros, uso (totais, por dia, por usuário), auditoria com 8 registros reais e filtros, provedores (modelo permitido, IA externa, OCR indisponível), convite criado com link de aceite; worker com beat registrando `maintenance.apply_retention` |
 
 ## Funcionalidades concluídas (Fase 4)
 
@@ -139,6 +167,9 @@ configurada neste ambiente; o `.env` local está com `EMBEDDING_PROVIDER=fake` e
 - O streaming do provedor OpenAI (`create(stream=True)`) ainda não foi exercitado com chave real.
 - Com o provedor `fake`, resumos/comparações apenas ecoam o primeiro trecho; a qualidade real depende de um LLM.
 - Sem exportação em PDF/DOCX (apenas Markdown e JSON); perguntas sugeridas usam amostra de trechos em documentos longos.
+- Sem 2FA; sem SMTP configurado os links de convite/recuperação só aparecem no log do servidor (o admin pode copiar o link do convite na UI).
+- OCR só funciona com Tesseract instalado no servidor (a imagem Docker padrão não o inclui); PDFs digitalizados com imagens não extraíveis pelo pypdf continuam sem texto.
+- Teto de custo mensal só é efetivo quando `PRICE_*_PER_1M` estão configurados; sem preços o sistema não estima custo.
 - E-mails com domínios reservados (ex.: `.local`) são rejeitados pelo validador; a mensagem agora é traduzida.
 
 ## Decisões de arquitetura
@@ -151,7 +182,7 @@ exata sem HNSW; citações validadas estruturalmente; PGlite como banco local se
 
 1. Rodar o fluxo com `OPENAI_API_KEY` real (`EMBEDDING_PROVIDER=openai`, `LLM_PROVIDER=openai` no `.env`,
    `docker compose up -d --force-recreate api worker`, depois `scripts/smoke_test.py`) e registrar o resultado.
-2. Iniciar a **Fase 5** (Administração e segurança): administração de membros (convites, papéis), permissões
-   avançadas, controle de uso e limites de custo por workspace, auditoria consultável, políticas de retenção,
-   gestão de provedores e avaliação técnica de OCR opcional.
+2. Iniciar a **Fase 6** (Avaliação e produção): módulo de avaliação RAG com ≥ 30 perguntas sobre os documentos
+   sintéticos (Recall@K, citações válidas, sustentação factual, abstenção correta, latência, tokens, custo), testes
+   adversariais, benchmark, Playwright E2E, revisão de segurança, Docker de produção revisado, screenshots e demo pública.
 3. Playwright: login → upload → processamento → pergunta → citação → visualizador (`e2e/`).

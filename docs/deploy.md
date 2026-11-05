@@ -68,6 +68,9 @@ Checklist mínimo:
 - Backups do volume do PostgreSQL e do MinIO; retenção definida.
 - Limites de uso (`RATE_LIMIT_*`, `MAX_UPLOAD_MB`, `MAX_PDF_PAGES`) revisados.
 - Monitoramento de `GET /api/v1/health`.
+- `APP_BASE_URL` com o domínio público (links de convite e recuperação de senha) e `MAIL_*` para envio real de e-mails.
+- O worker roda o Celery beat embutido (`-B`) para a retenção diária; mantenha **uma única** réplica do worker com `-B` (ou separe um serviço `beat`).
+- OCR: só se instalar `tesseract-ocr` + idioma na imagem e `uv sync --extra ocr` (ver `docs/ocr-evaluation.md`).
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
